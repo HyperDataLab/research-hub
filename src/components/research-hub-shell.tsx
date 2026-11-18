@@ -7,6 +7,7 @@ import { BrandHeader } from "@/components/brand-header";
 import { clearFileStore } from "@/lib/file-store";
 import {
   endSsoSession,
+  getSsoConfigurationIssues,
   getSsoSessionRaw,
   hydrateSsoSessionFromCallback,
   isSsoConfigured,
@@ -27,6 +28,14 @@ export function useResearchHubSession(): SsoSession {
 function LoginPage() {
   const [error, setError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
+
+  useEffect(() => {
+    const reasons = getSsoConfigurationIssues();
+    if (loginBusy) reasons.push("SSO sign-in redirect is in progress");
+    if (reasons.length > 0) {
+      console.warn("[Research Hub] SSO sign-in button is disabled", { reasons });
+    }
+  }, [loginBusy]);
 
   async function handleSignIn() {
     setLoginBusy(true);

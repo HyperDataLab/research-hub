@@ -37,9 +37,16 @@ const CLIENT_ID = process.env.NEXT_PUBLIC_HYPERDATALAB_SSO_CLIENT_ID ?? "";
 const CALLBACK_URL = process.env.NEXT_PUBLIC_HYPERDATALAB_SSO_CALLBACK_URL ?? "";
 let sessionRawInMemory: string | null = null;
 
-export const isSsoConfigured = Boolean(
-  SSO_BASE_URL && CLIENT_ID && !CLIENT_ID.startsWith("replace-") && CALLBACK_URL,
-);
+export function getSsoConfigurationIssues(): string[] {
+  const issues: string[] = [];
+  if (!SSO_BASE_URL) issues.push("NEXT_PUBLIC_HYPERDATALAB_SSO_BASE_URL is missing");
+  if (!CLIENT_ID) issues.push("NEXT_PUBLIC_HYPERDATALAB_SSO_CLIENT_ID is missing");
+  else if (CLIENT_ID.startsWith("replace-")) issues.push("NEXT_PUBLIC_HYPERDATALAB_SSO_CLIENT_ID is still a placeholder");
+  if (!CALLBACK_URL) issues.push("NEXT_PUBLIC_HYPERDATALAB_SSO_CALLBACK_URL is missing");
+  return issues;
+}
+
+export const isSsoConfigured = getSsoConfigurationIssues().length === 0;
 
 export function getSsoSessionRaw(): string | null {
   if (sessionRawInMemory) return sessionRawInMemory;
