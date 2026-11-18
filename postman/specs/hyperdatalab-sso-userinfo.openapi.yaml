@@ -1,0 +1,32 @@
+openapi: 3.1.0
+info:
+  title: HyperDataLab SSO Userinfo Stand-in
+  version: 1.0.0
+  description: Local-only stand-in for the Research Hub Worker authentication dependency.
+servers:
+  - url: http://sso.mock.local
+security:
+  - BearerToken: []
+paths:
+  /oauth/userinfo:
+    get:
+      summary: Return the verified SSO subject for a bearer token
+      responses:
+        "200":
+          description: Verified organization account
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sub, email, email_verified]
+                properties:
+                  sub: { type: string }
+                  email: { type: string, format: email }
+                  email_verified: { type: boolean, const: true }
+        "401":
+          description: Unknown or expired test token
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer

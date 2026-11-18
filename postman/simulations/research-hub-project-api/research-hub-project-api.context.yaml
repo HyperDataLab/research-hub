@@ -1,0 +1,75 @@
+# Simulation context — Research Hub Project API
+#
+# Generated 2026-11-18.
+#
+# What is believed to be true about the services this simulation stands in for,
+# and what each belief rests on. A `null` is something nobody has established
+# yet.
+#
+# Written from a fixed template and never recreated. How to read it, and how to
+# write a run back into it, is in the api-simulation skill
+# (skills/api-simulation/reference/context_file.md).
+
+simulation: "Research Hub Project API"
+generated: "2026-11-18"
+
+# What this simulation stands in for and what work it unblocks. Both need
+# hindsight, so they are the last thing to write. The members it serves, their
+# route keys and the hosts they answer for are in the .sim.yaml beside this file.
+purpose:
+  stands_in_for: ResearchPulse GET /oauth/userinfo used by the Research Hub Worker.
+  unblocks: Local integration checks of project API creation, listing, and owner isolation.
+
+# What the code relies on about a dependency's behaviour — one claim per entry,
+# each { id, status, claim, reason, verification, source, updated_at }.
+#
+#   status        supported     evidence supports it, within a stated scope
+#                 contradicted  evidence gives a counterexample
+#                 unknown       available evidence cannot establish or reject it
+#                 conflicting   applicable sources disagree
+#
+#   reason        why the evidence adds up to that status
+#   verification  what was checked and what it showed — a contract read, a
+#                 request made and its response, a handler inspected. Name what
+#                 is still planned or blocked, and what has gone stale and why.
+#   source        where to go to re-check it: a file and line range, a run, a
+#                 published contract. A claim with nothing to point at is
+#                 `unknown`.
+#   updated_at    the day this entry was last written, YYYY-MM-DD. Set it when
+#                 you add a claim and again whenever you change one, so a claim
+#                 nobody has touched in months is visible as such.
+#
+# A claim is about the dependency, not about the simulation — what the caller
+# is taken to be, which plan or permission is assumed, the order calls go in,
+# what gets retried, the shape of the data.
+#
+#   - id: charges-idempotent-for-24h
+#     status: supported
+#     claim: Payments treats a repeated Idempotency-Key as the same charge for
+#       24 hours. Beyond that it is a new charge.
+#     reason: The contract guarantees it for that window, and a run inside the
+#       window agreed. The 24-hour boundary itself is untested.
+#     verification: Read the provider's API reference for POST /charges, then
+#       sent the same key twice 10 minutes apart and got the first charge id
+#       back both times.
+#     source: the provider's API reference for POST /charges; runs/idempotency-001
+#     updated_at: "2026-11-18"
+assumptions:
+  - id: userinfo-returns-verified-project-owner
+    status: unknown
+    claim: A valid ResearchPulse SSO access token returns a stable sub, an email ending in @hyperdatalab.org, and email_verified true from /oauth/userinfo.
+    reason: The Worker requires these fields to authorize project access. This session verified the consumer against a local stand-in, but did not query the real ResearchPulse provider.
+    verification: On 2026-11-18, ran the Worker against the local Postman mock handler with two synthetic verified subjects. Creating a project as subject A returned 201; listing as A returned that project, listing as B returned an empty list, an invalid token returned 401, and a blank name returned 400. The Postman simulation host could not start because the CLI was denied access to its local dataset directory, so the mock handler was run directly. Real-provider behavior remains unverified.
+    source: worker/src/index.ts; postman/specs/hyperdatalab-sso-userinfo.openapi.yaml; postman/mocks/hyperdatalab-sso/default.js
+    updated_at: "2026-11-18"
+
+# What the claims above were written against: { id, date, commit, cli }, from
+# `git rev-parse HEAD` and `postman --version`. Append an entry when either
+# differs, and say so when the tree is dirty — a sha alone reads as a clean
+# checkout. A claim carried over from an older fingerprint is one nothing has
+# re-checked since.
+fingerprints:
+  - id: local-project-api-integration-2026-11-18
+    date: "2026-11-18"
+    commit: unverified (this workspace has no Git metadata)
+    cli: Postman CLI 1.82.0; Wrangler 4.164.0

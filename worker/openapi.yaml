@@ -1,0 +1,149 @@
+openapi: 3.1.0
+info:
+  title: Research Hub File API
+  version: 0.2.0
+  description: Private per-HyperDataLab-SSO-user projects and file storage. Project metadata is stored in Cloud Firestore; file content is stored in Cloudflare R2. Only verified @hyperdatalab.org email accounts are accepted.
+servers:
+  - url: http://127.0.0.1:8787
+    description: Local Wrangler development server
+security:
+  - HyperDataLabBearer: []
+paths:
+  /api/projects:
+    get:
+      summary: List projects owned by the current SSO user
+      responses:
+        "200":
+          description: Projects owned by the authenticated SSO subject
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Project" } }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
+    post:
+      summary: Create a project for the current SSO user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120, pattern: '\S' }
+                description: { type: string, maxLength: 1000, default: "" }
+      responses:
+        "201":
+          description: Project created and owned by the authenticated SSO subject
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project]
+                properties:
+                  project: { $ref: "#/components/schemas/Project" }
+        "400": { description: "Project name or description is invalid" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
+  /api/files:
+    get:
+      summary: List the current user's files
+      parameters:
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200":
+          description: File page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, cursor]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/FileItem" } }
+                  cursor: { type: [string, "null"] }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+    post:
+      summary: Upload one file (maximum 25 MB)
+      parameters:
+        - in: header
+          name: X-File-Name
+          required: true
+          schema: { type: string, maxLength: 180 }
+      requestBody:
+        required: true
+        content:
+          "*/*":
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: File stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item]
+                properties:
+                  item: { $ref: "#/components/schemas/FileItem" }
+        "413": { description: "File exceeds 25 MB" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+  /api/files/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Download a file owned by the current user
+      responses:
+        "200": { description: "File bytes, returned as an attachment" }
+        "404": { description: "File not found" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+    delete:
+      summary: Delete a file owned by the current user
+      responses:
+        "200": { description: "File deleted" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+components:
+  securitySchemes:
+    HyperDataLabBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque OAuth access token
+  schemas:
+    Project:
+      type: object
+      required: [id, name, description, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, description: Stable project identifier for future Research Hub modules }
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FileItem:
+      type: object
+      required: [id, name, contentType, size, uploadedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        contentType: { type: string }
+        size: { type: integer, minimum: 0 }
+        uploadedAt: { type: string, format: date-time }

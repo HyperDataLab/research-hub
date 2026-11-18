@@ -1,0 +1,15 @@
+version: 1
+id: 4a9a23d3-fdc5-4abd-b5be-357283a819bb
+name: HyperDataLab SSO Local
+slug: hyperdatalab-sso-local
+protocol: http
+port: 4601
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true
+generatedFrom:
+  type: spec
+  mode: static
+  path: ../../specs/hyperdatalab-sso-userinfo.openapi.yaml

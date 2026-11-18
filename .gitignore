@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.wrangler/
+worker/.dev.vars
+*-firebase-adminsdk-*.json
+*service-account*.json
+.env.local
+*.tsbuildinfo
+worker-configuration.d.ts
+dist/

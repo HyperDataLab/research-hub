@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "research-hub-files",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "vars": {
+    "SSO_BASE_URL": "https://rpr-grobid-gateway.hpl-storage.workers.dev",
+    "FIREBASE_PROJECT_ID": "hyperdatalab-researchhub",
+    "ALLOWED_ORIGINS": "http://localhost:3000"
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES_BUCKET",
+      "bucket_name": "research-hub-files"
+    }
+  ]
+}
