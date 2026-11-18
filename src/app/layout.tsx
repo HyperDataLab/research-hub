@@ -4,6 +4,10 @@ import "./sso.css";
 
 export const metadata: Metadata = {
   title: "Research Hub | HyperData Lab",
+  icons: {
+    icon: "/research-hub-logo.png",
+    apple: "/research-hub-logo.png",
+  },
   description: "Kho tài liệu nghiên cứu dành cho tài khoản HyperData Lab.",
 };
 
