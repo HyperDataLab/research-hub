@@ -10,6 +10,7 @@ import {
   getSsoConfigurationIssues,
   getSsoSessionRaw,
   isSsoAdminRole,
+  logPendingSsoUserInfoDiagnostics,
   hydrateSsoSessionFromCallback,
   isSsoConfigured,
   parseSsoSession,
@@ -102,7 +103,8 @@ export function ResearchHubShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     hydrateSsoSessionFromCallback();
-  }, []);
+    if (!pathname.includes("/auth/callback")) logPendingSsoUserInfoDiagnostics();
+  }, [pathname]);
 
   async function handleSignOut() {
     await endSsoSession(session);

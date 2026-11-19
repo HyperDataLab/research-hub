@@ -32,6 +32,7 @@ const SESSION_TRANSFER_KEY = "research-hub-sso-session-transfer";
 const SESSION_KEY = "research-hub-sso-session";
 const ATTEMPT_KEY = "research-hub-sso-attempt";
 const SESSION_EVENT = "research-hub-sso-session-change";
+const SSO_USERINFO_DIAGNOSTICS_KEY = "research-hub-sso-userinfo-diagnostics";
 const SSO_BASE_URL = (process.env.NEXT_PUBLIC_HYPERDATALAB_SSO_BASE_URL ?? "").replace(/\/$/, "");
 const CLIENT_ID = process.env.NEXT_PUBLIC_HYPERDATALAB_SSO_CLIENT_ID ?? "";
 const CALLBACK_URL = process.env.NEXT_PUBLIC_HYPERDATALAB_SSO_CALLBACK_URL ?? "";
@@ -102,6 +103,18 @@ export function isSsoAdminRole(role: unknown): boolean {
   return typeof role === "string" && role.trim().toLowerCase() === "admin";
 }
 
+export function logPendingSsoUserInfoDiagnostics(): void {
+  if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return;
+  const diagnostics = window.sessionStorage.getItem(SSO_USERINFO_DIAGNOSTICS_KEY);
+  if (!diagnostics) return;
+  window.sessionStorage.removeItem(SSO_USERINFO_DIAGNOSTICS_KEY);
+  try {
+    console.info("[Research Hub] SSO userinfo diagnostics", JSON.parse(diagnostics));
+  } catch {
+    console.warn("[Research Hub] Could not read saved SSO userinfo diagnostics.");
+  }
+}
+
 function randomBase64Url(bytes = 32): string {
   const value = crypto.getRandomValues(new Uint8Array(bytes));
   let binary = "";
@@ -129,7 +142,7 @@ export async function startSsoLogin(): Promise<void> {
     response_type: "code",
     client_id: CLIENT_ID,
     redirect_uri: CALLBACK_URL,
-    scope: "email profile",
+    scope: "email profile hyperdatalab_profile",
     state,
     code_challenge: challenge,
     code_challenge_method: "S256",
@@ -176,6 +189,14 @@ export async function completeSsoCallback(callbackUrl: string): Promise<void> {
     headers: { Authorization: `Bearer ${tokenBody.access_token}` },
   });
   const profile = await userInfoResponse.json().catch(() => ({})) as SsoProfile;
+  if (process.env.NODE_ENV === "development") {
+    const diagnostics = {
+      status: userInfoResponse.status,
+      claims: Object.keys(profile).sort(),
+      role: profile.role ?? null,
+    };
+    window.sessionStorage.setItem(SSO_USERINFO_DIAGNOSTICS_KEY, JSON.stringify(diagnostics));
+  }
   if (!userInfoResponse.ok || !profile.sub) throw new Error("Không lấy được hồ sơ từ HyperDataLab SSO.");
   if (!isAllowedOrganizationEmail(profile.email, profile.email_verified)) {
     await fetch(new URL("/oauth/revoke", SSO_BASE_URL), {
