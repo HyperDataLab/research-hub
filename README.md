@@ -7,6 +7,7 @@ A Next.js research workspace using HyperDataLab SSO for identity, a Cloudflare W
 - Authenticated workspace with a left sidebar and separate `/projects` and `/files` pages; `/` opens the projects page.
 - Next.js App Router file library with upload, list, download, and delete.
 - SSO-owned research projects with stable IDs, stored in Firestore for future Research Hub modules.
+- The PaperLab project tool opens with the current project and uses an exact-origin `postMessage` handoff to pass the active SSO session without putting the token in a URL; other tool links keep their normal launch behavior.
 - OAuth Authorization Code + PKCE for a browser-only **Public** SSO client.
 - Strict email eligibility: `email_verified` must be `true` and the full address must end exactly in `@hyperdatalab.org`.
 - Worker rechecks the SSO token and email on every file API call; R2 keys are separated by the stable SSO `sub`.

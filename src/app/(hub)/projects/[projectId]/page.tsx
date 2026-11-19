@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useResearchHubSession } from "@/components/research-hub-shell";
@@ -28,7 +28,7 @@ function ToolIcon({ kind }: { kind: "paper" | "writing" }) {
   );
 }
 
-function ProjectTool({ name, kind, href }: { name: string; kind: "paper" | "writing"; href: string | null }) {
+function ProjectTool({ name, kind, href, onLaunch }: { name: string; kind: "paper" | "writing"; href: string | null; onLaunch?: () => void }) {
   const content = (
     <>
       <span className="project-tool-icon"><ToolIcon kind={kind} /></span>
@@ -40,7 +40,9 @@ function ProjectTool({ name, kind, href }: { name: string; kind: "paper" | "writ
     </>
   );
 
-  return href ? (
+  return href && onLaunch ? (
+    <button className="project-tool-card" type="button" onClick={onLaunch}>{content}</button>
+  ) : href ? (
     <a className="project-tool-card" href={href} target="_blank" rel="noopener noreferrer">{content}</a>
   ) : (
     <div className="project-tool-card is-unavailable" aria-disabled="true">{content}</div>
@@ -52,6 +54,8 @@ export default function ProjectWorkspacePage() {
   const session = useResearchHubSession();
   const [projects, setProjects] = useState<ResearchProject[] | null>(null);
   const [error, setError] = useState("");
+  const [handoffError, setHandoffError] = useState("");
+  const pendingHandoff = useRef<{ popup: Window; state: string; projectId: string; origin: string; timer: number } | null>(null);
   const [toolSettingsState, setToolSettingsState] = useState<{ accessToken: string; settings: ToolSettings; error: string } | null>(null);
 
   useEffect(() => {
@@ -83,6 +87,58 @@ export default function ProjectWorkspacePage() {
   const toolSettings = currentToolSettings?.settings ?? EMPTY_TOOL_SETTINGS;
   const paperLabUrl = toolUrl(toolSettings.paperLabUrl, projectId);
   const writingLabUrl = toolUrl(toolSettings.writingLabUrl, projectId);
+  const paperLabOrigin = paperLabUrl ? new URL(paperLabUrl).origin : "";
+
+  useEffect(() => {
+    function onHandoffRequest(event: MessageEvent<unknown>) {
+      const pending = pendingHandoff.current;
+      if (!pending || event.source !== pending.popup || event.origin !== pending.origin || !project || project.id !== pending.projectId) return;
+      if (!event.data || typeof event.data !== "object") return;
+      const request = event.data as Record<string, unknown>;
+      if (request.type !== "paperlab.sso.handoff.request" || request.state !== pending.state || request.projectId !== pending.projectId) return;
+
+      pending.popup.postMessage({
+        type: "researchhub.sso.handoff.response",
+        state: pending.state,
+        projectId: pending.projectId,
+        accessToken: session.accessToken,
+        expiresAt: session.expiresAt,
+      }, pending.origin);
+      window.clearTimeout(pending.timer);
+      pendingHandoff.current = null;
+      setHandoffError("");
+    }
+    window.addEventListener("message", onHandoffRequest);
+    return () => window.removeEventListener("message", onHandoffRequest);
+  }, [project, session.accessToken, session.expiresAt]);
+
+  useEffect(() => () => {
+    const pending = pendingHandoff.current;
+    if (pending) window.clearTimeout(pending.timer);
+    pendingHandoff.current = null;
+  }, []);
+
+  function openPaperLab() {
+    if (!paperLabUrl || !project || !paperLabOrigin) return;
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      setHandoffError("Trình duyệt đã chặn tab mới. Hãy cho phép popup của ResearchHub rồi thử lại.");
+      return;
+    }
+    const random = new Uint8Array(32);
+    crypto.getRandomValues(random);
+    const state = btoa(String.fromCharCode(...random)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    const timer = window.setTimeout(() => {
+      const pending = pendingHandoff.current;
+      if (pending?.state !== state) return;
+      pendingHandoff.current = null;
+      setHandoffError("PaperLab không phản hồi phiên SSO. Hãy kiểm tra cấu hình nguồn ResearchHub trong PaperLab rồi mở lại.");
+    }, 20_000);
+    pendingHandoff.current = { popup, state, projectId, origin: paperLabOrigin, timer };
+    const target = new URL(paperLabUrl);
+    target.searchParams.set("rh_handoff", state);
+    popup.location.replace(target.toString());
+  }
 
   return (
     <section className="hub-page-content">
@@ -117,8 +173,9 @@ export default function ProjectWorkspacePage() {
               <code className="project-id">ID: {project.id}</code>
             </div>
             {currentToolSettings?.error && <div className="notice notice-error" role="alert">{currentToolSettings.error}</div>}
+            {handoffError && <div className="notice notice-error" role="alert">{handoffError}</div>}
             <div className="project-tools-grid">
-              <ProjectTool name="PaperLab" kind="paper" href={paperLabUrl} />
+              <ProjectTool name="PaperLab" kind="paper" href={paperLabUrl} onLaunch={openPaperLab} />
               <ProjectTool name="Writing Lab" kind="writing" href={writingLabUrl} />
             </div>
             <p className="project-tools-note">Hai công cụ sẽ nhận ID ổn định này khi được kết nối.</p>
