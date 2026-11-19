@@ -16,7 +16,7 @@ A Next.js research workspace using HyperDataLab SSO for identity, a Cloudflare W
 
 ## 1. Register the SSO client
 
-In ResearchPulse, open **Admin → Connected applications** and register this as a **Public** client. Do not create or use a client secret in the browser. Request the minimum scopes `email profile`.
+In ResearchPulse, open **Admin → Connected applications** and register this as a **Public** client. Do not create or use a client secret in the browser. Request the scopes `email profile hyperdatalab_profile`; the last scope is required for the SSO role claim used by admin-only features.
 
 For local development, register the exact callback URL:
 
@@ -83,6 +83,8 @@ Update `ALLOWED_ORIGINS` in `worker/wrangler.jsonc` to the deployed frontend ori
 Set `NEXT_PUBLIC_FILE_API_URL` to the deployed file Worker URL and `NEXT_PUBLIC_HYPERDATALAB_SSO_CALLBACK_URL` to the exact callback registered for the Public SSO client, then redeploy the frontend. The R2 bucket remains private and is accessed only through the Worker binding.
 
 ## File API
+
+The OpenAPI contract is in `worker/openapi.yaml`. See [`docs/external-api.md`](docs/external-api.md) for external integration setup, authentication, request examples, and current API limitations.
 
 Every route requires `Authorization: Bearer <HyperDataLab SSO access token>`. The Worker validates it by calling the SSO `/oauth/userinfo` endpoint and rejects unverified or non-organization emails.
 

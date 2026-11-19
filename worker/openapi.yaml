@@ -1,9 +1,16 @@
 openapi: 3.1.0
 info:
-  title: Research Hub File API
-  version: 0.2.0
-  description: Private per-HyperDataLab-SSO-user projects and file storage. Project metadata is stored in Cloud Firestore; file content is stored in Cloudflare R2. Only verified @hyperdatalab.org email accounts are accepted.
+  title: Research Hub External API
+  version: 0.3.0
+  description: |-
+    APIs for external systems to manage the authenticated user's projects and files.
+    Project metadata is stored in Cloud Firestore; file bytes are stored in private Cloudflare R2.
+    Every request needs a HyperDataLab SSO access token for a verified @hyperdatalab.org user.
+    Obtain it through the registered OAuth Authorization Code + PKCE client with scopes
+    email, profile, and hyperdatalab_profile. The last scope is required for the role claim.
 servers:
+  - url: https://research-hub-files.hyperdatalab.workers.dev
+    description: Production
   - url: http://127.0.0.1:8787
     description: Local Wrangler development server
 security:
@@ -53,6 +60,7 @@ paths:
   /api/projects:
     get:
       summary: List projects owned by the current SSO user
+      description: Returns up to 100 projects owned by the SSO subject, sorted by most recently updated. Project sharing is not supported.
       responses:
         "200":
           description: Projects owned by the authenticated SSO subject
@@ -69,6 +77,7 @@ paths:
         "503": { description: "Firestore service account is not configured or lacks access" }
     post:
       summary: Create a project for the current SSO user
+      description: Creates a private project owned by the authenticated SSO subject. The API currently has no project get-by-id, update, or delete operation.
       requestBody:
         required: true
         content:
@@ -98,6 +107,7 @@ paths:
   /api/files:
     get:
       summary: List the current user's files
+      description: Returns up to 100 files per page. Pass the returned cursor to fetch the next page. Files are private to the authenticated SSO subject and are not currently associated with project IDs.
       parameters:
         - in: query
           name: cursor
@@ -118,6 +128,7 @@ paths:
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
     post:
       summary: Upload one file (maximum 25 MB)
+      description: Upload raw file bytes as the request body, not multipart/form-data. URL-encode the original filename in X-File-Name. Content-Type is retained as file metadata.
       parameters:
         - in: header
           name: X-File-Name
@@ -150,6 +161,7 @@ paths:
         schema: { type: string, format: uuid }
     get:
       summary: Download a file owned by the current user
+      description: Returns raw bytes with Content-Disposition attachment; the response is not JSON.
       responses:
         "200": { description: "File bytes, returned as an attachment" }
         "404": { description: "File not found" }
@@ -159,7 +171,15 @@ paths:
     delete:
       summary: Delete a file owned by the current user
       responses:
-        "200": { description: "File deleted" }
+        "200":
+          description: File deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean, const: true }
         "401": { description: "Missing, expired, or invalid SSO access token" }
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
@@ -169,6 +189,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: opaque OAuth access token
+      description: Obtain from the registered HyperDataLab SSO OAuth Authorization Code + PKCE client using scopes email, profile, and hyperdatalab_profile. No API-key or service-token authentication is currently available.
   schemas:
     ToolSettings:
       type: object
