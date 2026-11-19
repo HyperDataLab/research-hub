@@ -16,11 +16,19 @@ const server = http.createServer((req, res) => {
         sub: "project_owner_a",
         email: "owner-a@hyperdatalab.org",
         email_verified: true,
+        role: "member",
       },
       "Bearer project-owner-b-test-token": {
         sub: "project_owner_b",
         email: "owner-b@hyperdatalab.org",
         email_verified: true,
+        role: "member",
+      },
+      "Bearer research-hub-admin-test-token": {
+        sub: "research_hub_admin",
+        email: "admin@hyperdatalab.org",
+        email_verified: true,
+        role: "admin",
       },
     };
     const user = users[req.headers.authorization];

@@ -11,6 +11,17 @@ interface SsoUserInfo {
   sub?: unknown;
   email?: unknown;
   email_verified?: unknown;
+  role?: unknown;
+}
+
+interface SsoIdentity {
+  sub: string;
+  role: string | null;
+}
+
+interface ToolSettings {
+  paperLabUrl: string;
+  writingLabUrl: string;
 }
 
 interface ProjectRow {
@@ -40,6 +51,8 @@ class FirestoreFailure extends Error {
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const LIST_LIMIT = 100;
+const TOOL_SETTINGS_PATH = "/toolSettings/global";
+const EMPTY_TOOL_SETTINGS: ToolSettings = { paperLabUrl: "", writingLabUrl: "" };
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FIRESTORE_SCOPE = "https://www.googleapis.com/auth/datastore";
 let cachedGoogleToken: { value: string; expiresAt: number } | null = null;
@@ -126,7 +139,7 @@ async function firestoreRequest<T>(env: Env, path: string, init?: RequestInit): 
     throw new FirestoreFailure("Không thể kết nối Cloud Firestore.", 502);
   }
   if (!response.ok) {
-    const status = response.status === 401 || response.status === 403 ? 503 : 502;
+    const status = response.status === 401 || response.status === 403 ? 503 : response.status === 404 ? 404 : 502;
     throw new FirestoreFailure("Yêu cầu Cloud Firestore thất bại. Kiểm tra quyền IAM của service account và cấu hình database.", status);
   }
   return await response.json() as T;
@@ -135,6 +148,42 @@ async function firestoreRequest<T>(env: Env, path: string, init?: RequestInit): 
 function firestoreString(document: FirestoreDocument, field: string): string {
   const value = document.fields?.[field]?.stringValue;
   return typeof value === "string" ? value : "";
+}
+
+function toolSettingsFromDocument(document: FirestoreDocument): ToolSettings {
+  return {
+    paperLabUrl: firestoreString(document, "paperLabUrl"),
+    writingLabUrl: firestoreString(document, "writingLabUrl"),
+  };
+}
+
+async function getToolSettings(env: Env): Promise<ToolSettings> {
+  try {
+    const document = await firestoreRequest<FirestoreDocument>(env, TOOL_SETTINGS_PATH);
+    return toolSettingsFromDocument(document);
+  } catch (error) {
+    if (error instanceof FirestoreFailure && error.status === 404) return EMPTY_TOOL_SETTINGS;
+    throw error;
+  }
+}
+
+async function saveToolSettings(env: Env, settings: ToolSettings, updatedBy: string): Promise<ToolSettings> {
+  const updateMask = new URLSearchParams();
+  for (const field of ["paperLabUrl", "writingLabUrl", "updatedAt", "updatedBy"]) {
+    updateMask.append("updateMask.fieldPaths", field);
+  }
+  const document = await firestoreRequest<FirestoreDocument>(env, `${TOOL_SETTINGS_PATH}?${updateMask.toString()}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      fields: {
+        paperLabUrl: { stringValue: settings.paperLabUrl },
+        writingLabUrl: { stringValue: settings.writingLabUrl },
+        updatedAt: { timestampValue: new Date().toISOString() },
+        updatedBy: { stringValue: updatedBy },
+      },
+    }),
+  });
+  return toolSettingsFromDocument(document);
 }
 
 function projectFromDocument(document: FirestoreDocument, ownerSub: string): ProjectRow | null {
@@ -155,7 +204,7 @@ function projectFromDocument(document: FirestoreDocument, ownerSub: string): Pro
 
 function corsHeaders(request: Request, env: Env): Headers {
   const headers = new Headers({
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, X-File-Name",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
@@ -172,7 +221,7 @@ function json(data: unknown, status: number, headers: Headers): Response {
   return new Response(JSON.stringify(data), { status, headers });
 }
 
-async function getUid(request: Request, env: Env): Promise<string> {
+async function getSsoIdentity(request: Request, env: Env): Promise<SsoIdentity> {
   const header = request.headers.get("Authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token) throw new AuthFailure("A HyperDataLab SSO access token is required.", 401);
@@ -198,7 +247,40 @@ async function getUid(request: Request, env: Env): Promise<string> {
   if (typeof profile.sub !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(profile.sub)) {
     throw new AuthFailure("The SSO profile has no stable subject identifier.", 401);
   }
-  return profile.sub;
+  return {
+    sub: profile.sub,
+    role: typeof profile.role === "string" ? profile.role : null,
+  };
+}
+
+function validateToolUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim();
+  if (!candidate) return "";
+  if (candidate.length > 2048) return null;
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (url.username || url.password) return null;
+  if (url.protocol === "https:") return url.toString();
+  if (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+    return url.toString();
+  }
+  return null;
+}
+
+function readToolSettingsInput(value: unknown): ToolSettings | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== "paperLabUrl" && key !== "writingLabUrl")) return null;
+  const paperLabUrl = validateToolUrl(body.paperLabUrl);
+  const writingLabUrl = validateToolUrl(body.writingLabUrl);
+  if (paperLabUrl === null || writingLabUrl === null) return null;
+  return { paperLabUrl, writingLabUrl };
 }
 
 async function readProjectInput(request: Request): Promise<ProjectInput | null> {
@@ -240,12 +322,34 @@ async function handle(request: Request, env: Env): Promise<Response> {
     return json({ error: "Configure SSO_BASE_URL in worker/wrangler.jsonc." }, 503, headers);
   }
 
-  let uid: string;
+  let identity: SsoIdentity;
   try {
-    uid = await getUid(request, env);
+    identity = await getSsoIdentity(request, env);
   } catch (error) {
     if (error instanceof AuthFailure) return json({ error: error.message }, error.status, headers);
     throw error;
+  }
+  const uid = identity.sub;
+
+  if (url.pathname === "/api/tool-settings" && request.method === "GET") {
+    return json({ settings: await getToolSettings(env) }, 200, headers);
+  }
+
+  if (url.pathname === "/api/tool-settings" && request.method === "PUT") {
+    if (identity.role?.trim().toLowerCase() !== "admin") {
+      return json({ error: "Admin role is required to update tool settings." }, 403, headers);
+    }
+    let value: unknown;
+    try {
+      value = await request.json();
+    } catch {
+      return json({ error: "Tool settings must be valid JSON." }, 400, headers);
+    }
+    const settings = readToolSettingsInput(value);
+    if (!settings) {
+      return json({ error: "Enter valid HTTPS URLs, or HTTP URLs on localhost only." }, 400, headers);
+    }
+    return json({ settings: await saveToolSettings(env, settings, identity.sub) }, 200, headers);
   }
 
   if (url.pathname === "/api/projects" && request.method === "GET") {

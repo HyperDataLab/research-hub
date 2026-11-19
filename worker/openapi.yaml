@@ -9,6 +9,47 @@ servers:
 security:
   - HyperDataLabBearer: []
 paths:
+  /api/tool-settings:
+    get:
+      summary: Read the shared PaperLab and Writing Lab URLs
+      description: Available to authenticated, verified organization users so project workspaces can render their tool links.
+      responses:
+        "200":
+          description: Shared tool URL configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings]
+                properties:
+                  settings: { $ref: "#/components/schemas/ToolSettings" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
+    put:
+      summary: Update the shared PaperLab and Writing Lab URLs
+      description: Only an SSO userinfo profile with role=admin may update the shared settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ToolSettings" }
+      responses:
+        "200":
+          description: Updated shared tool URL configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings]
+                properties:
+                  settings: { $ref: "#/components/schemas/ToolSettings" }
+        "400": { description: "Invalid JSON or tool URL; URLs must use HTTPS (HTTP is allowed for localhost)" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account is not an administrator or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
   /api/projects:
     get:
       summary: List projects owned by the current SSO user
@@ -129,6 +170,13 @@ components:
       scheme: bearer
       bearerFormat: opaque OAuth access token
   schemas:
+    ToolSettings:
+      type: object
+      additionalProperties: false
+      required: [paperLabUrl, writingLabUrl]
+      properties:
+        paperLabUrl: { type: string, maxLength: 2048, description: HTTPS URL (HTTP allowed for localhost development), or empty to disable PaperLab }
+        writingLabUrl: { type: string, maxLength: 2048, description: HTTPS URL (HTTP allowed for localhost development), or empty to disable Writing Lab }
     Project:
       type: object
       required: [id, name, description, createdAt, updatedAt]

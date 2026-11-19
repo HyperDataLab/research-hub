@@ -9,6 +9,7 @@ import {
   endSsoSession,
   getSsoConfigurationIssues,
   getSsoSessionRaw,
+  isSsoAdminRole,
   hydrateSsoSessionFromCallback,
   isSsoConfigured,
   parseSsoSession,
@@ -87,11 +88,17 @@ function NavIcon({ kind }: { kind: "projects" | "files" }) {
   );
 }
 
+function SettingsIcon() {
+  return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8.1 2.9h3.8l.45 1.7a5.8 5.8 0 0 1 1.2.7l1.7-.45 1.9 3.3-1.25 1.25a5.8 5.8 0 0 1 0 1.4l1.25 1.25-1.9 3.3-1.7-.45a5.8 5.8 0 0 1-1.2.7l-.45 1.7H8.1l-.45-1.7a5.8 5.8 0 0 1-1.2-.7l-1.7.45-1.9-3.3 1.25-1.25a5.8 5.8 0 0 1 0-1.4L2.85 8.15l1.9-3.3 1.7.45a5.8 5.8 0 0 1 1.2-.7L8.1 2.9Z" /><circle cx="10" cy="10" r="2.2" /></svg>;
+}
+
 export function ResearchHubShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isProjectsRoute = pathname.startsWith("/projects");
+  const isAdminToolsRoute = pathname === "/admin/tools";
   const sessionRaw = useSyncExternalStore(subscribeSsoSession, getSsoSessionRaw, () => null);
   const session = useMemo(() => parseSsoSession(sessionRaw), [sessionRaw]);
+  const isAdmin = isSsoAdminRole(session?.profile.role);
 
   useEffect(() => {
     hydrateSsoSessionFromCallback();
@@ -134,6 +141,11 @@ export function ResearchHubShell({ children }: { children: ReactNode }) {
               <Link className={`hub-nav-link${pathname === "/files" ? " is-active" : ""}`} href="/files" aria-current={pathname === "/files" ? "page" : undefined}>
                 <NavIcon kind="files" /> <span>Tệp của bạn</span>
               </Link>
+              {isAdmin && (
+                <Link className={`hub-nav-link${isAdminToolsRoute ? " is-active" : ""}`} href="/admin/tools" aria-current={isAdminToolsRoute ? "page" : undefined}>
+                  <SettingsIcon /> <span>Cấu hình</span>
+                </Link>
+              )}
             </nav>
           </aside>
           <div className="hub-main">{children}</div>

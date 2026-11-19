@@ -47,7 +47,7 @@ The project ID is configured in `worker/wrangler.jsonc`. Install dependencies an
 
 This checkout also includes the Firebase Admin SDK key file in the project root. To load it without copying the private key manually, run `npm run worker:secrets:local`. To load the same credentials locally and upload them as Cloudflare Worker secrets, run `npm run worker:secrets:deploy`. The command verifies that the service account belongs to the configured Firebase project and never prints the key. Service-account JSON files are gitignored.
 
-Each project opens a workspace with PaperLab and Writing Lab launch cards. Configure `NEXT_PUBLIC_PAPERLAB_URL` and `NEXT_PUBLIC_WRITING_LAB_URL` in `.env.local` when those tools have reachable URLs; Research Hub appends the stable `projectId` query parameter. Until configured, the cards remain visible but marked as not connected.
+Each project opens a workspace with PaperLab and Writing Lab launch cards. An administrator can configure their shared URLs from **Cấu hình công cụ** in the Research Hub sidebar; the Worker stores the values in Firestore and checks the SSO `role=admin` claim before updates. Workspaces read the current settings at runtime and append the stable `projectId` query parameter. Leave a URL empty to show that tool as not connected.
 
 ```powershell
 npm install

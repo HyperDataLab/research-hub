@@ -98,6 +98,10 @@ export function isAllowedOrganizationEmail(email: unknown, verified: unknown): e
   return verified === true && typeof email === "string" && /^[^@\s]+@hyperdatalab\.org$/i.test(email.trim());
 }
 
+export function isSsoAdminRole(role: unknown): boolean {
+  return typeof role === "string" && role.trim().toLowerCase() === "admin";
+}
+
 function randomBase64Url(bytes = 32): string {
   const value = crypto.getRandomValues(new Uint8Array(bytes));
   let binary = "";

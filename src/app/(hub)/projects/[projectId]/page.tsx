@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useResearchHubSession } from "@/components/research-hub-shell";
 import { listProjects, type ResearchProject } from "@/lib/projects";
+import { getToolSettings, type ToolSettings } from "@/lib/tool-settings";
+
+const EMPTY_TOOL_SETTINGS: ToolSettings = { paperLabUrl: "", writingLabUrl: "" };
 
 function toolUrl(baseUrl: string | undefined, projectId: string): string | null {
   if (!baseUrl?.trim()) return null;
@@ -49,6 +52,7 @@ export default function ProjectWorkspacePage() {
   const session = useResearchHubSession();
   const [projects, setProjects] = useState<ResearchProject[] | null>(null);
   const [error, setError] = useState("");
+  const [toolSettingsState, setToolSettingsState] = useState<{ accessToken: string; settings: ToolSettings; error: string } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -60,9 +64,25 @@ export default function ProjectWorkspacePage() {
     return () => { active = false; };
   }, [session.accessToken]);
 
+  useEffect(() => {
+    let active = true;
+    void getToolSettings(session.accessToken)
+      .then((settings) => { if (active) setToolSettingsState({ accessToken: session.accessToken, settings, error: "" }); })
+      .catch((cause: unknown) => {
+        if (active) setToolSettingsState({
+          accessToken: session.accessToken,
+          settings: EMPTY_TOOL_SETTINGS,
+          error: cause instanceof Error ? cause.message : "Không tải được cấu hình công cụ.",
+        });
+      });
+    return () => { active = false; };
+  }, [session.accessToken]);
+
   const project = projects?.find((item) => item.id === projectId) ?? null;
-  const paperLabUrl = toolUrl(process.env.NEXT_PUBLIC_PAPERLAB_URL, projectId);
-  const writingLabUrl = toolUrl(process.env.NEXT_PUBLIC_WRITING_LAB_URL, projectId);
+  const currentToolSettings = toolSettingsState?.accessToken === session.accessToken ? toolSettingsState : null;
+  const toolSettings = currentToolSettings?.settings ?? EMPTY_TOOL_SETTINGS;
+  const paperLabUrl = toolUrl(toolSettings.paperLabUrl, projectId);
+  const writingLabUrl = toolUrl(toolSettings.writingLabUrl, projectId);
 
   return (
     <section className="hub-page-content">
@@ -96,6 +116,7 @@ export default function ProjectWorkspacePage() {
               </div>
               <code className="project-id">ID: {project.id}</code>
             </div>
+            {currentToolSettings?.error && <div className="notice notice-error" role="alert">{currentToolSettings.error}</div>}
             <div className="project-tools-grid">
               <ProjectTool name="PaperLab" kind="paper" href={paperLabUrl} />
               <ProjectTool name="Writing Lab" kind="writing" href={writingLabUrl} />

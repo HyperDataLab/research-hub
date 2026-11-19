@@ -23,6 +23,7 @@ paths:
                   sub: { type: string }
                   email: { type: string, format: email }
                   email_verified: { type: boolean, const: true }
+                  role: { type: string, description: Optional SSO role; admin users have value admin }
         "401":
           description: Unknown or expired test token
 components:
