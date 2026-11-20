@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { useResearchHubSession } from "@/components/research-hub-shell";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { createProject, deleteProject, listProjects, restoreProject, type ResearchProject } from "@/lib/projects";
 
 export default function ProjectsPage() {
@@ -15,6 +16,7 @@ export default function ProjectsPage() {
   const [description, setDescription] = useState("");
   const [saveError, setSaveError] = useState("");
   const [view, setView] = useState<"active" | "archived">("active");
+  const [archiveTarget, setArchiveTarget] = useState<ResearchProject | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -64,8 +66,14 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleArchive(project: ResearchProject) {
-    if (!window.confirm("Chuyển “" + project.name + "” vào lưu trữ? File trong project sẽ được giữ nguyên.")) return;
+  function handleArchive(project: ResearchProject) {
+    setArchiveTarget(project);
+  }
+
+  async function confirmArchive() {
+    const project = archiveTarget;
+    setArchiveTarget(null);
+    if (!project) return;
     setSaveError("");
     try {
       const archived = await deleteProject(session.accessToken, project.id);
@@ -94,14 +102,14 @@ export default function ProjectsPage() {
       <header className="hub-page-heading">
         <p className="eyebrow">RESEARCH HUB <span>·</span> KHÔNG GIAN LÀM VIỆC</p>
         <h1>Dự án nghiên cứu</h1>
-        <p className="intro-copy">Tạo và quản lý các dự án cá nhân, sẵn sàng kết nối với PaperLab và Writing.</p>
+        <p className="intro-copy">Quản lý dự án của bạn và các dự án được chia sẻ với bạn, sẵn sàng kết nối với PaperLab và Writing.</p>
       </header>
 
       <section className="projects-section" aria-labelledby="projects-title">
         <div className="projects-heading">
           <div>
-            <p className="eyebrow">KHÔNG GIAN CỦA BẠN</p>
-            <h2 id="projects-title">{view === "active" ? "Dự án của bạn" : "Project lưu trữ"} <span className="count">{projects.length.toString().padStart(2, "0")}</span></h2>
+            <p className="eyebrow">KHÔNG GIAN LÀM VIỆC</p>
+            <h2 id="projects-title">{view === "active" ? "Dự án" : "Project lưu trữ"} <span className="count">{projects.length.toString().padStart(2, "0")}</span></h2>
           </div>
           <div className="projects-heading-actions">
             <div className="project-view-tabs" role="tablist" aria-label="Loại project">
@@ -142,10 +150,13 @@ export default function ProjectsPage() {
               <tbody>
                 {projects.map((project) => (
                   <tr data-project-id={project.id} key={project.id}>
-                    <th className="project-table-name" scope="row">{view === "active" ? <Link className="project-name-link" href={`/projects/${encodeURIComponent(project.id)}`}>{project.name}</Link> : project.name}</th>
+                    <th className="project-table-name" scope="row">
+                      {view === "active" ? <Link className="project-name-link" href={`/projects/${encodeURIComponent(project.id)}`}>{project.name}</Link> : project.name}
+                      <span className={`project-role-badge${project.accessRole === "owner" ? " is-owner" : ""}`}>{project.accessRole === "owner" ? "Owner" : "Thành viên"}</span>
+                    </th>
                     <td className="project-table-description">{project.description || <span className="project-table-empty">—</span>}</td>
                     <td className="project-table-date"><time dateTime={project.createdAt}>{new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(project.createdAt))}</time></td>
-                    <td className="project-table-actions">{view === "active" ? <button type="button" onClick={() => void handleArchive(project)}>Lưu trữ</button> : <button type="button" onClick={() => void handleRestore(project)}>Khôi phục</button>}</td>
+                    <td className="project-table-actions">{project.accessRole !== "owner" ? <span className="project-member-label">Thành viên</span> : view === "active" ? <button type="button" onClick={() => void handleArchive(project)}>Lưu trữ</button> : <button type="button" onClick={() => void handleRestore(project)}>Khôi phục</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -158,6 +169,7 @@ export default function ProjectsPage() {
           </div>
         )}
       </section>
+      {archiveTarget && <ConfirmDialog title="Đưa project vào lưu trữ?" description={`Chuyển “${archiveTarget.name}” vào lưu trữ. File trong project sẽ được giữ nguyên.`} confirmLabel="Lưu trữ project" onCancel={() => setArchiveTarget(null)} onConfirm={() => void confirmArchive()} />}
     </section>
   );
 }

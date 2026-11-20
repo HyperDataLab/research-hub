@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useResearchHubSession } from "@/components/research-hub-shell";
-import { listProjects, type ResearchProject } from "@/lib/projects";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { addProjectMember, listProjects, removeProjectMember, type ProjectMember, type ResearchProject } from "@/lib/projects";
 import { getToolSettings, type ToolSettings } from "@/lib/tool-settings";
 
 const EMPTY_TOOL_SETTINGS: ToolSettings = { paperLabUrl: "", writingLabUrl: "" };
@@ -55,6 +56,12 @@ export default function ProjectWorkspacePage() {
   const [projects, setProjects] = useState<ResearchProject[] | null>(null);
   const [error, setError] = useState("");
   const [handoffError, setHandoffError] = useState("");
+  const [memberState, setMemberState] = useState<{ projectId: string; items: ProjectMember[] } | null>(null);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberBusy, setMemberBusy] = useState(false);
+  const [memberError, setMemberError] = useState("");
+  const [memberNotice, setMemberNotice] = useState("");
+  const [memberToRemove, setMemberToRemove] = useState<ProjectMember | null>(null);
   const pendingHandoff = useRef<{ popup: Window; state: string; projectId: string; origin: string; timer: number } | null>(null);
   const [toolSettingsState, setToolSettingsState] = useState<{ accessToken: string; settings: ToolSettings; error: string } | null>(null);
 
@@ -83,11 +90,51 @@ export default function ProjectWorkspacePage() {
   }, [session.accessToken]);
 
   const project = projects?.find((item) => item.id === projectId) ?? null;
+  const members = memberState && memberState.projectId === project?.id ? memberState.items : project?.accessRole === "owner" ? project.members : [];
   const currentToolSettings = toolSettingsState?.accessToken === session.accessToken ? toolSettingsState : null;
   const toolSettings = currentToolSettings?.settings ?? EMPTY_TOOL_SETTINGS;
   const paperLabUrl = toolUrl(toolSettings.paperLabUrl, projectId);
   const writingLabUrl = toolUrl(toolSettings.writingLabUrl, projectId);
   const paperLabOrigin = paperLabUrl ? new URL(paperLabUrl).origin : "";
+
+  async function handleAddMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!project || project.accessRole !== "owner" || memberBusy) return;
+    setMemberBusy(true);
+    setMemberError("");
+    setMemberNotice("");
+    try {
+      setMemberState({ projectId: project.id, items: await addProjectMember(session.accessToken, project.id, memberEmail.trim()) });
+      setMemberEmail("");
+      setMemberNotice("Đã thêm thành viên vào project.");
+    } catch (cause) {
+      setMemberError(cause instanceof Error ? cause.message : "Không thêm được thành viên.");
+    } finally {
+      setMemberBusy(false);
+    }
+  }
+
+  function handleRemoveMember(member: ProjectMember) {
+    if (!project || project.accessRole !== "owner" || memberBusy) return;
+    setMemberToRemove(member);
+  }
+
+  async function confirmRemoveMember() {
+    const member = memberToRemove;
+    setMemberToRemove(null);
+    if (!project || !member || project.accessRole !== "owner" || memberBusy) return;
+    setMemberBusy(true);
+    setMemberError("");
+    setMemberNotice("");
+    try {
+      setMemberState({ projectId: project.id, items: await removeProjectMember(session.accessToken, project.id, member.id) });
+      setMemberNotice(`Đã gỡ ${member.email} khỏi project.`);
+    } catch (cause) {
+      setMemberError(cause instanceof Error ? cause.message : "Không gỡ được thành viên.");
+    } finally {
+      setMemberBusy(false);
+    }
+  }
 
   useEffect(() => {
     function onHandoffRequest(event: MessageEvent<unknown>) {
@@ -180,8 +227,29 @@ export default function ProjectWorkspacePage() {
             </div>
             <p className="project-tools-note">Hai công cụ sẽ nhận ID ổn định này khi được kết nối.</p>
           </section>
+
+          {project.accessRole === "owner" ? (
+            <section className="project-members-panel" aria-labelledby="project-members-title">
+              <div className="project-members-heading">
+                <div><p className="eyebrow">CỘNG TÁC</p><h2 id="project-members-title">Thành viên <span className="count">{members.length.toString().padStart(2, "0")}</span></h2></div>
+                <span className="project-owner-badge">Owner · {session.profile.email}</span>
+              </div>
+              <p className="project-members-help">Chỉ thêm được tài khoản HyperDataLab đã xác minh và từng đăng nhập Research Hub. Thành viên có thể dùng công cụ và quản lý file trong project.</p>
+              <form className="project-member-form" onSubmit={(event) => void handleAddMember(event)}>
+                <label htmlFor="project-member-email">Email thành viên</label>
+                <input id="project-member-email" type="email" autoComplete="off" required pattern="[^@]+@hyperdatalab[.]org" placeholder="ten@hyperdatalab.org" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} disabled={memberBusy} />
+                <button className="project-create-button" type="submit" disabled={memberBusy}>{memberBusy ? <><span className="spinner" /> Đang xử lý</> : "Thêm thành viên"}</button>
+              </form>
+              {memberError && <div className="notice notice-error" role="alert">{memberError}</div>}
+              {memberNotice && <div className="notice notice-success" role="status">{memberNotice}</div>}
+              {members.length ? <ul className="project-member-list">{members.map((member) => <li key={member.id}><span className="project-member-avatar" aria-hidden="true">{(member.name || member.email).slice(0, 1).toUpperCase()}</span><span className="project-member-identity"><strong>{member.name || member.email}</strong><small>{member.email}</small></span><button type="button" onClick={() => void handleRemoveMember(member)} disabled={memberBusy}>Gỡ</button></li>)}</ul> : <div className="project-members-empty">Chưa có thành viên nào khác trong project.</div>}
+            </section>
+          ) : (
+            <section className="project-members-panel project-shared-notice"><p className="eyebrow">PROJECT ĐƯỢC CHIA SẺ</p><p>Bạn là thành viên của project do <strong>{project.ownerEmail || "owner"}</strong> sở hữu. Bạn có thể cộng tác với công cụ và các file trong project.</p></section>
+          )}
         </>
       )}
+      {memberToRemove && <ConfirmDialog title="Gỡ thành viên khỏi project?" description={`${memberToRemove.email} sẽ mất quyền truy cập workspace và file của project này.`} confirmLabel="Gỡ thành viên" onCancel={() => setMemberToRemove(null)} onConfirm={() => void confirmRemoveMember()} />}
     </section>
   );
 }

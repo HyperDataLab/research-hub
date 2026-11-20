@@ -29,11 +29,11 @@ export function subscribeFileStore(callback: () => void): () => void {
   return () => subscribers.delete(callback);
 }
 
-export async function refreshFileStore(accessToken: string): Promise<void> {
+export async function refreshFileStore(accessToken: string, projectIds: string[] = []): Promise<void> {
   const sequence = ++requestSequence;
   publish({ items: [], loading: true, error: "" });
   try {
-    const items = await listFiles(accessToken);
+    const items = await listFiles(accessToken, projectIds);
     if (sequence === requestSequence) publish({ items, loading: false, error: "" });
   } catch (cause) {
     if (sequence === requestSequence) {

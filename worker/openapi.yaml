@@ -34,6 +34,29 @@ paths:
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
         "503": { description: "Firestore service account is not configured or lacks access" }
+  /api/session:
+    post:
+      summary: Register the current verified SSO account in the Research Hub directory
+      description: Records the user's SSO subject and verified organization email so project owners can add users who have already signed in to Research Hub.
+      responses:
+        "200":
+          description: Account registered
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    type: object
+                    required: [email, name]
+                    properties:
+                      email: { type: string, format: email }
+                      name: { type: string }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
     put:
       summary: Update the shared PaperLab and Writing Lab URLs
       description: Only an SSO userinfo profile with role=admin may update the shared settings.
@@ -59,8 +82,8 @@ paths:
         "503": { description: "Firestore service account is not configured or lacks access" }
   /api/projects:
     get:
-      summary: List projects owned by the current SSO user
-      description: Returns up to 100 projects owned by the SSO subject, sorted by most recently updated. Archived projects are excluded unless includeDeleted=true. Project sharing is not supported.
+      summary: List projects owned by or shared with the current SSO user
+      description: Returns up to 100 owned or shared projects, sorted by most recently updated. Archived projects are excluded unless includeDeleted=true.
       parameters:
         - in: query
           name: includeDeleted
@@ -68,7 +91,7 @@ paths:
           schema: { type: boolean, default: false }
       responses:
         "200":
-          description: Projects owned by the authenticated SSO subject
+          description: Projects owned by or shared with the authenticated SSO subject
           content:
             application/json:
               schema:
@@ -82,7 +105,7 @@ paths:
         "503": { description: "Firestore service account is not configured or lacks access" }
     post:
       summary: Create a project for the current SSO user
-      description: Creates a private active project owned by the authenticated SSO subject.
+      description: Creates an active project owned by the authenticated SSO subject. Project metadata and files are available to its owner and explicitly added members.
       requestBody:
         required: true
         content:
@@ -157,11 +180,89 @@ paths:
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
         "503": { description: "Firestore service account is not configured or lacks access" }
+  /api/projects/{id}/members:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: List project members
+      description: Only the project owner can read the member list.
+      responses:
+        "200":
+          description: Project members
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members: { type: array, items: { $ref: "#/components/schemas/ProjectMember" } }
+        "404": { description: "Project not found or caller is not the owner" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+    post:
+      summary: Add a Research Hub user to a project
+      description: Only the owner can add a user. The email must match a verified @hyperdatalab.org account that has previously signed in to Research Hub. Members receive full file and workspace access; only the owner can manage members or archive the project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email: { type: string, format: email, pattern: '^[^@\\s]+@hyperdatalab\\.org$' }
+      responses:
+        "200":
+          description: Updated project member list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members: { type: array, items: { $ref: "#/components/schemas/ProjectMember" } }
+        "400": { description: "Invalid or non-organization email" }
+        "404": { description: "Project not found, user is not registered, or caller is not the owner" }
+        "409": { description: "Project is archived, user is already a member, or project has reached its member limit" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+  /api/projects/{id}/members/{memberId}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+      - in: path
+        name: memberId
+        required: true
+        description: SSO subject identifier returned as ProjectMember.id
+        schema: { type: string, minLength: 1, maxLength: 128 }
+    delete:
+      summary: Remove a member from a project
+      description: Only the project owner can remove a member. Removed users immediately lose project and file access.
+      responses:
+        "200":
+          description: Updated project member list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members: { type: array, items: { $ref: "#/components/schemas/ProjectMember" } }
+        "404": { description: "Project or member not found, or caller is not the owner" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
   /api/files:
     get:
       summary: List the current user's files
-      description: Returns up to 100 files per page. Pass the returned cursor to fetch the next page. Files are private to the authenticated SSO subject. Legacy files may have projectId=null until assigned to a project.
+      description: Returns up to 100 of the current user's own files when projectId is omitted. When projectId is supplied, returns files in that accessible project, including files uploaded by its owner and members. Legacy files may have projectId=null until assigned to a project.
       parameters:
+        - in: query
+          name: projectId
+          description: List files belonging to this project. The caller must be its owner or member.
+          schema: { type: string, format: uuid }
         - in: query
           name: cursor
           schema: { type: string }
@@ -181,12 +282,12 @@ paths:
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
     post:
       summary: Upload one file (maximum 25 MB)
-      description: Upload raw file bytes as the request body, not multipart/form-data. URL-encode the original filename in X-File-Name. Content-Type is retained as file metadata. Every upload must be assigned to an active project owned by the current SSO user.
+      description: Upload raw file bytes as the request body, not multipart/form-data. URL-encode the original filename in X-File-Name. Content-Type is retained as file metadata. Every upload must be assigned to an active project where the current user is owner or member.
       parameters:
         - in: header
           name: X-Project-Id
           required: true
-          description: UUID of an active project owned by the current SSO user.
+          description: UUID of an active project where the current SSO user is owner or member.
           schema: { type: string, format: uuid }
         - in: header
           name: X-File-Name
@@ -209,7 +310,7 @@ paths:
                   item: { $ref: "#/components/schemas/FileItem" }
         "413": { description: "File exceeds 25 MB" }
         "400": { description: "Missing or invalid X-Project-Id or X-File-Name" }
-        "404": { description: "Project not found or not owned by the current SSO user" }
+        "404": { description: "Project not found or caller is not an owner/member" }
         "409": { description: "Project is archived" }
         "401": { description: "Missing, expired, or invalid SSO access token" }
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
@@ -222,7 +323,7 @@ paths:
         schema: { type: string, format: uuid }
     put:
       summary: Assign a file to a project
-      description: Assigns or reassigns one of the current user's files to an active project they own. Used to map legacy unassigned files.
+      description: Assigns or reassigns one of the current user's files to an active project where they are owner or member. Used to map legacy unassigned files.
       requestBody:
         required: true
         content:
@@ -244,7 +345,7 @@ paths:
                 properties:
                   item: { $ref: "#/components/schemas/FileItem" }
         "400": { description: "Invalid JSON or projectId" }
-        "404": { description: "File or owned project not found" }
+        "404": { description: "File or accessible project not found" }
         "409": { description: "Project is archived" }
         "401": { description: "Missing, expired, or invalid SSO access token" }
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
@@ -256,8 +357,12 @@ paths:
         required: true
         schema: { type: string, format: uuid }
     get:
-      summary: Download a file owned by the current user
-      description: Returns raw bytes with Content-Disposition attachment; the response is not JSON.
+      summary: Download a file owned by the current user or shared with their project
+      description: Returns raw bytes with Content-Disposition attachment; the response is not JSON. Pass projectId for project files so project membership is checked.
+      parameters:
+        - in: query
+          name: projectId
+          schema: { type: string, format: uuid }
       responses:
         "200": { description: "File bytes, returned as an attachment" }
         "404": { description: "File not found" }
@@ -265,7 +370,11 @@ paths:
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
     delete:
-      summary: Delete a file owned by the current user
+      summary: Delete a file owned by the current user or shared with their project
+      parameters:
+        - in: query
+          name: projectId
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: File deleted
@@ -296,7 +405,7 @@ components:
         writingLabUrl: { type: string, maxLength: 2048, description: HTTPS URL (HTTP allowed for localhost development), or empty to disable Writing Lab }
     Project:
       type: object
-      required: [id, name, description, createdAt, updatedAt, deletedAt]
+      required: [id, name, description, createdAt, updatedAt, deletedAt, ownerEmail, accessRole, memberCount, members]
       properties:
         id: { type: string, format: uuid, description: Stable project identifier for future Research Hub modules }
         name: { type: string, maxLength: 120 }
@@ -304,6 +413,18 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         deletedAt: { type: [string, "null"], format: date-time, description: Null while active; timestamp when archived }
+        ownerEmail: { type: string, description: Owner's verified organization email; may be empty for older projects until their owner manages membership }
+        accessRole: { type: string, enum: [owner, member] }
+        memberCount: { type: integer, minimum: 0, maximum: 50 }
+        members: { type: array, items: { $ref: "#/components/schemas/ProjectMember" }, description: Contains member details for owners and is empty for members }
+    ProjectMember:
+      type: object
+      required: [id, email, name, addedAt]
+      properties:
+        id: { type: string, description: SSO subject identifier; use to remove the member }
+        email: { type: string, format: email }
+        name: { type: string }
+        addedAt: { type: string, format: date-time }
     FileItem:
       type: object
       required: [id, name, contentType, size, uploadedAt, projectId]

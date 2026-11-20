@@ -21,16 +21,28 @@ async function request<T>(accessToken: string, path: string, init?: RequestInit)
   return response.json() as Promise<T>;
 }
 
-export async function listFiles(accessToken: string): Promise<StoredFile[]> {
+async function listFilePages(accessToken: string, path: string): Promise<StoredFile[]> {
   const items: StoredFile[] = [];
   let cursor: string | null = null;
   do {
-    const cursorParam: string = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-    const result: { items: StoredFile[]; cursor: string | null } = await request<{ items: StoredFile[]; cursor: string | null }>(accessToken, `/api/files${cursorParam}`);
+    const separator = path.includes("?") ? "&" : "?";
+    const cursorParam = cursor ? `${separator}cursor=${encodeURIComponent(cursor)}` : "";
+    const result: { items: StoredFile[]; cursor: string | null } = await request<{ items: StoredFile[]; cursor: string | null }>(accessToken, `${path}${cursorParam}`);
     items.push(...result.items);
     cursor = result.cursor;
   } while (cursor);
   return items;
+}
+
+export async function listFiles(accessToken: string, projectIds: string[] = []): Promise<StoredFile[]> {
+  const groups = [await listFilePages(accessToken, "/api/files")];
+  for (let offset = 0; offset < projectIds.length; offset += 6) {
+    const batch = projectIds.slice(offset, offset + 6);
+    groups.push(...await Promise.all(batch.map((projectId) => listFilePages(accessToken, `/api/files?projectId=${encodeURIComponent(projectId)}`))));
+  }
+  const unique = new Map<string, StoredFile>();
+  for (const file of groups.flat()) unique.set(file.id, file);
+  return [...unique.values()].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt) || a.id.localeCompare(b.id));
 }
 
 export async function uploadFile(accessToken: string, projectId: string, file: File): Promise<void> {
@@ -60,7 +72,8 @@ export async function assignFileToProject(accessToken: string, id: string, proje
 }
 
 export async function downloadFile(accessToken: string, file: StoredFile): Promise<void> {
-  const response = await fetch(`${apiUrl}/api/files/${file.id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const params = file.projectId ? `?projectId=${encodeURIComponent(file.projectId)}` : "";
+  const response = await fetch(`${apiUrl}/api/files/${encodeURIComponent(file.id)}${params}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!response.ok) throw new Error("Không tải được file.");
   const blobUrl = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
@@ -70,6 +83,7 @@ export async function downloadFile(accessToken: string, file: StoredFile): Promi
   URL.revokeObjectURL(blobUrl);
 }
 
-export async function deleteFile(accessToken: string, id: string): Promise<void> {
-  await request<{ ok: boolean }>(accessToken, `/api/files/${id}`, { method: "DELETE" });
+export async function deleteFile(accessToken: string, file: StoredFile): Promise<void> {
+  const params = file.projectId ? `?projectId=${encodeURIComponent(file.projectId)}` : "";
+  await request<{ ok: boolean }>(accessToken, `/api/files/${encodeURIComponent(file.id)}${params}`, { method: "DELETE" });
 }

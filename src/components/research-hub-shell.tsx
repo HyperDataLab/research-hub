@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandHeader } from "@/components/brand-header";
 import { clearFileStore } from "@/lib/file-store";
+import { registerResearchHubUser } from "@/lib/projects";
 import {
   endSsoSession,
   getSsoConfigurationIssues,
@@ -60,7 +61,7 @@ function LoginPage() {
         <section className="login-information" aria-label="Thông tin về kho tài liệu">
           <section className="login-info-section" aria-labelledby="library-heading">
             <h2 id="library-heading">Tài liệu trong kho</h2>
-            <p>Kho lưu các tệp nghiên cứu do thành viên tải lên. Thành viên có thể tìm, tải xuống hoặc xóa các tệp trong thư viện riêng của tài khoản.</p>
+            <p>Kho lưu file theo project. Owner và thành viên được chia sẻ có thể cộng tác, tìm, tải xuống hoặc quản lý file trong project.</p>
           </section>
           <section className="login-info-section login-support" aria-labelledby="support-heading">
             <h2 id="support-heading">Hỗ trợ truy cập</h2>
@@ -99,12 +100,20 @@ export function ResearchHubShell({ children }: { children: ReactNode }) {
   const isAdminToolsRoute = pathname === "/admin/tools";
   const sessionRaw = useSyncExternalStore(subscribeSsoSession, getSsoSessionRaw, () => null);
   const session = useMemo(() => parseSsoSession(sessionRaw), [sessionRaw]);
+  const accessToken = session?.accessToken;
   const isAdmin = isSsoAdminRole(session?.profile.role);
 
   useEffect(() => {
     hydrateSsoSessionFromCallback();
     if (!pathname.includes("/auth/callback")) logPendingSsoUserInfoDiagnostics();
   }, [pathname]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    void registerResearchHubUser(accessToken).catch(() => {
+      console.warn("[Research Hub] Could not register the signed-in account for project collaboration.");
+    });
+  }, [accessToken]);
 
   async function handleSignOut() {
     await endSsoSession(session);

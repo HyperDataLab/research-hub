@@ -23,6 +23,8 @@ Token phải được cấp bởi HyperDataLab SSO cho người dùng có email 
 
 API hiện dùng token người dùng theo OAuth Authorization Code + PKCE; chưa hỗ trợ API key hoặc client-credentials/service token. Vì vậy hệ thống gọi API phải có access token của người dùng. Không gửi token trong query string hoặc ghi token vào log.
 
+Khi người dùng đăng nhập Research Hub, frontend gọi `POST /api/session` để đăng ký SSO subject, email tổ chức đã xác minh và tên hiển thị vào danh bạ riêng của ứng dụng. Owner chỉ thêm được người đã xuất hiện trong danh bạ này. Worker tiếp tục xác minh SSO userinfo ở mọi request.
+
 Các lời gọi từ trình duyệt cần thêm origin của frontend vào `ALLOWED_ORIGINS`. Lời gọi backend-to-backend không cần cấu hình CORS.
 
 ## Project
@@ -33,7 +35,7 @@ Các lời gọi từ trình duyệt cần thêm origin của frontend vào `ALL
 GET /api/projects
 ```
 
-Trả tối đa 100 project thuộc SSO subject hiện tại, mới cập nhật trước. Project đã lưu trữ bị ẩn theo mặc định; thêm `?includeDeleted=true` để lấy cả project lưu trữ. Chưa có chia sẻ project.
+Trả tối đa 100 project mà SSO subject hiện tại sở hữu hoặc được chia sẻ với họ, mới cập nhật trước. Project đã lưu trữ bị ẩn theo mặc định; thêm `?includeDeleted=true` để lấy cả project lưu trữ.
 
 ```bash
 curl "$BASE_URL/api/projects" \
@@ -73,6 +75,25 @@ curl -X POST "$BASE_URL/api/projects" \
 
 Trả `201 Created` với `{ "project": { ... } }`.
 
+### Quản lý thành viên
+
+```http
+GET    /api/projects/{projectId}/members
+POST   /api/projects/{projectId}/members
+DELETE /api/projects/{projectId}/members/{memberId}
+```
+
+Chỉ owner được xem, thêm hoặc gỡ thành viên. Khi thêm, gửi email HyperDataLab đã xác minh của một tài khoản đã đăng nhập Research Hub ít nhất một lần:
+
+```bash
+curl -X POST "$BASE_URL/api/projects/$PROJECT_ID/members" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"member@hyperdatalab.org"}'
+```
+
+Worker tra email chính xác trong danh bạ SSO đã đăng ký. Nếu tài khoản chưa từng vào Research Hub, API trả `404`; yêu cầu người đó đăng nhập rồi thử lại. Thành viên được dùng workspace và quản lý file trong project. Chỉ owner được quản lý thành viên hoặc lưu trữ/khôi phục project. Gỡ thành viên có hiệu lực ngay ở các request tiếp theo.
+
 ### Lưu trữ và khôi phục project
 
 ```http
@@ -106,7 +127,7 @@ curl "$BASE_URL/api/files" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Response gồm `items` (`id`, `name`, `contentType`, `size`, `uploadedAt`, `projectId`) và `cursor` (string hoặc `null`). Mỗi file mới có một `projectId`; file cũ chưa chuyển đổi có `projectId: null`. Dùng `projectId` phía client để lọc file theo project.
+Response gồm `items` (`id`, `name`, `contentType`, `size`, `uploadedAt`, `projectId`) và `cursor` (string hoặc `null`). Khi gọi `/api/files?projectId={id}`, API liệt kê file của project đó cho owner và members, gồm file do bất kỳ người cộng tác nào tải lên. Nếu `projectId` bị bỏ qua, trả file trong vùng lưu trữ cá nhân của user; file cũ chưa chuyển đổi có `projectId: null`.
 
 ### Upload file
 
@@ -131,7 +152,7 @@ curl -X POST "$BASE_URL/api/files" \
   --data-binary "@./Bao cao.pdf"
 ```
 
-`X-Project-Id` là bắt buộc. Worker kiểm tra project thuộc người dùng hiện tại và chưa được lưu trữ. Thiếu/sai UUID trả `400`, project không tồn tại hoặc không thuộc user trả `404`, project lưu trữ trả `409`. Trả `201 Created` với `{ "item": { "id", "name", "contentType", "size", "uploadedAt", "projectId" } }`.
+`X-Project-Id` là bắt buộc. Worker kiểm tra người dùng hiện tại là owner/member và project chưa được lưu trữ. Thiếu/sai UUID trả `400`, project không tồn tại hoặc user không có quyền trả `404`, project lưu trữ trả `409`. Bytes được lưu trong vùng project để owner và members dùng chung. Trả `201 Created` với `{ "item": { "id", "name", "contentType", "size", "uploadedAt", "projectId" } }`.
 
 ### Gắn hoặc chuyển file sang project khác
 
@@ -154,10 +175,10 @@ Trả `200 OK` với `{ "item": { ... } }`. Không có endpoint để gỡ liên
 ### Download file
 
 ```http
-GET /api/files/{id}
+GET /api/files/{id}?projectId={projectId}
 ```
 
-Trả bytes của file với `Content-Disposition: attachment`, không phải JSON.
+Với file thuộc project, truyền `projectId` để Worker xác minh quyền owner/member. Trả bytes của file với `Content-Disposition: attachment`, không phải JSON.
 
 ```bash
 curl "$BASE_URL/api/files/$FILE_ID" \
@@ -165,15 +186,17 @@ curl "$BASE_URL/api/files/$FILE_ID" \
   --output ./downloaded-file
 ```
 
+Thêm `?projectId=$PROJECT_ID` vào URL khi tải file thuộc project.
+
 File không tồn tại hoặc không thuộc user hiện tại trả `404`.
 
 ### Xóa file
 
 ```http
-DELETE /api/files/{id}
+DELETE /api/files/{id}?projectId={projectId}
 ```
 
-Trả `200 OK` với `{ "ok": true }`.
+Truyền `projectId` khi xóa file project; mọi owner/member của project có thể quản lý file. File legacy chưa gắn project chỉ truy cập được trong vùng lưu trữ cá nhân. Trả `200 OK` với `{ "ok": true }`.
 
 ```bash
 curl -X DELETE "$BASE_URL/api/files/$FILE_ID" \

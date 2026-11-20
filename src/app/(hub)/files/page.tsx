@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useResearchHubSession } from "@/components/research-hub-shell";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Dropdown, type DropdownOption } from "@/components/dropdown";
 import { assignFileToProject, deleteFile, downloadFile, type StoredFile, uploadFile } from "@/lib/files";
 import { listProjects, type ResearchProject } from "@/lib/projects";
 import { getFileStoreServerSnapshot, getFileStoreSnapshot, refreshFileStore, removeFileFromStore, subscribeFileStore } from "@/lib/file-store";
@@ -38,9 +40,8 @@ export default function FilesPage() {
   const [projectFilter, setProjectFilter] = useState("all");
   const [projectState, setProjectState] = useState<{ accessToken: string; items: ResearchProject[]; error: string } | null>(null);
   const [assigningFileId, setAssigningFileId] = useState("");
+  const [fileToDelete, setFileToDelete] = useState<StoredFile | null>(null);
   const files = fileStore.items;
-
-  useEffect(() => { void refreshFileStore(session.accessToken); }, [session.accessToken]);
 
   useEffect(() => {
     let active = true;
@@ -56,6 +57,20 @@ export default function FilesPage() {
   const projects = useMemo(() => currentProjectState?.items ?? [], [currentProjectState]);
   const activeProjects = useMemo(() => projects.filter((project) => !project.deletedAt), [projects]);
   const projectById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
+  const uploadProjectOptions: DropdownOption[] = [
+    { value: "", label: !currentProjectState ? "Đang tải project…" : activeProjects.length ? "Chọn project" : "Chưa có project đang hoạt động", disabled: true },
+    ...activeProjects.map((project) => ({ value: project.id, label: project.name })),
+  ];
+  const projectFilterOptions: DropdownOption[] = [
+    { value: "all", label: "Tất cả project" },
+    { value: "__unassigned__", label: "Chưa gắn project" },
+    ...projects.map((project) => ({ value: project.id, label: `${project.name}${project.deletedAt ? " (Lưu trữ)" : ""}` })),
+  ];
+
+  useEffect(() => {
+    if (!currentProjectState) return;
+    void refreshFileStore(session.accessToken, projects.map((project) => project.id));
+  }, [session.accessToken, currentProjectState, projects]);
 
   const visibleFiles = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -84,7 +99,7 @@ export default function FilesPage() {
     setNotice("");
     try {
       await uploadFile(session.accessToken, projectId, file);
-      await refreshFileStore(session.accessToken);
+      await refreshFileStore(session.accessToken, projects.map((project) => project.id));
       setNotice(`Đã tải lên “${file.name}”.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Tải file lên thất bại.");
@@ -100,7 +115,7 @@ export default function FilesPage() {
     setNotice("");
     try {
       await assignFileToProject(session.accessToken, file.id, targetProjectId);
-      await refreshFileStore(session.accessToken);
+      await refreshFileStore(session.accessToken, projects.map((project) => project.id));
       setNotice(`Đã gắn tài liệu “${file.name}” vào project.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không gắn được file vào project.");
@@ -118,11 +133,17 @@ export default function FilesPage() {
     }
   }
 
-  async function handleDelete(file: StoredFile) {
-    if (!window.confirm(`Xóa “${file.name}”?`)) return;
+  function handleDelete(file: StoredFile) {
+    setFileToDelete(file);
+  }
+
+  async function confirmDelete() {
+    const file = fileToDelete;
+    setFileToDelete(null);
+    if (!file) return;
     try {
       setError("");
-      await deleteFile(session.accessToken, file.id);
+      await deleteFile(session.accessToken, file);
       removeFileFromStore(file.id);
       setNotice("Đã xóa file.");
     } catch (cause) {
@@ -135,7 +156,7 @@ export default function FilesPage() {
       <header className="hub-page-heading">
         <p className="eyebrow">RESEARCH HUB <span>·</span> KHO TÀI LIỆU</p>
         <h1>Tệp của bạn</h1>
-        <p className="intro-copy">Tệp được lưu riêng và chỉ mở bằng tài khoản HyperDataLab đã xác minh.</p>
+        <p className="intro-copy">File được chia sẻ theo project; chỉ owner và thành viên của project mới truy cập được.</p>
       </header>
 
       <section className="upload-panel" aria-label="Tải file lên">
@@ -143,13 +164,10 @@ export default function FilesPage() {
           <div className="upload-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.25c0 .97.78 1.75 1.75 1.75h10.5c.97 0 1.75-.78 1.75-1.75V14" /></svg></div>
           <div><h2>Tải tài liệu lên</h2><p>Chọn project trước. Mỗi file sẽ thuộc đúng một project. Tối đa 25 MB.</p></div>
         </div>
-        <label className="upload-project-select" htmlFor="upload-project-id">
-          <span>Project</span>
-          <select id="upload-project-id" value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={!currentProjectState || activeProjects.length === 0 || busy}>
-            <option value="">{!currentProjectState ? "Đang tải project…" : activeProjects.length ? "Chọn project" : "Chưa có project đang hoạt động"}</option>
-            {activeProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
-          </select>
-        </label>
+        <div className="upload-project-select">
+          <label htmlFor="upload-project-id">Project</label>
+          <Dropdown id="upload-project-id" ariaLabel="Chọn project để tải file lên" value={projectId} options={uploadProjectOptions} onChange={setProjectId} disabled={!currentProjectState || activeProjects.length === 0 || busy} />
+        </div>
         <label className={`upload-button ${busy ? "is-busy" : ""}`}>
           {busy ? <><span className="spinner" /> Đang tải lên</> : <>Chọn file <span>↗</span></>}
           <input type="file" onChange={(event) => { void handleUpload(event.target.files); event.currentTarget.value = ""; }} disabled={busy || fileStore.loading || !projectId || !activeProjects.some((project) => project.id === projectId)} />
@@ -165,9 +183,9 @@ export default function FilesPage() {
       <div className="section-heading">
         <div><p className="eyebrow">THƯ VIỆN</p><h2>Tệp của bạn <span className="count">{files.length.toString().padStart(2, "0")}</span></h2></div>
         <div className="library-tools">
-          <label className="project-filter-select"><span>Project</span><select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)} aria-label="Lọc theo project"><option value="all">Tất cả project</option><option value="__unassigned__">Chưa gắn project</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}{project.deletedAt ? " (Lưu trữ)" : ""}</option>)}</select></label>
+          <div className="project-filter-select"><label htmlFor="file-project-filter">Project</label><Dropdown id="file-project-filter" ariaLabel="Lọc theo project" value={projectFilter} options={projectFilterOptions} onChange={setProjectFilter} /></div>
           <label className="search-box"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.7" cy="8.7" r="5.7" /><path d="m13 13 4 4" /></svg><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tài liệu" aria-label="Tìm tài liệu" /></label>
-          <button className="refresh-button" onClick={() => { setError(""); void refreshFileStore(session.accessToken); }} title="Tải lại danh sách" aria-label="Tải lại danh sách"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.2 8A6.4 6.4 0 0 0 5 5.3L3.6 6.8M3.8 4.2v2.9h2.9M3.8 12a6.4 6.4 0 0 0 11.2 2.7l1.4-1.5m-.2 2.6v-2.9h-2.9" /></svg></button>
+          <button className="refresh-button" onClick={() => { setError(""); void refreshFileStore(session.accessToken, projects.map((project) => project.id)); }} title="Tải lại danh sách" aria-label="Tải lại danh sách"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.2 8A6.4 6.4 0 0 0 5 5.3L3.6 6.8M3.8 4.2v2.9h2.9M3.8 12a6.4 6.4 0 0 0 11.2 2.7l1.4-1.5m-.2 2.6v-2.9h-2.9" /></svg></button>
         </div>
       </div>
 
@@ -180,10 +198,7 @@ export default function FilesPage() {
             <div className="file-name"><span className={`file-type type-${fileKind(file).toLowerCase()}`}>{fileKind(file)}</span><span title={file.name}>{file.name}</span></div>
             <div className="file-project-cell">
               {file.projectId ? <span className={`file-project-tag${projectById.get(file.projectId)?.deletedAt ? " is-archived" : ""}`}>{projectById.get(file.projectId)?.name ?? "Project không còn trong danh sách"}{projectById.get(file.projectId)?.deletedAt && <small>Lưu trữ</small>}</span> : (
-                <select aria-label={`Gắn ${file.name} vào project`} value="" disabled={assigningFileId === file.id || activeProjects.length === 0} onChange={(event) => void handleAssignProject(file, event.target.value)}>
-                  <option value="">{assigningFileId === file.id ? "Đang gắn…" : "Chọn project…"}</option>
-                  {activeProjects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}
-                </select>
+                <Dropdown ariaLabel={`Gắn ${file.name} vào project`} value="" options={[{ value: "", label: assigningFileId === file.id ? "Đang gắn…" : "Chọn project…", disabled: true }, ...activeProjects.map((project) => ({ value: project.id, label: project.name }))]} disabled={assigningFileId === file.id || activeProjects.length === 0} onChange={(targetProjectId) => void handleAssignProject(file, targetProjectId)} />
               )}
             </div>
             <span className="file-size">{formatBytes(file.size)}</span>
@@ -200,6 +215,7 @@ export default function FilesPage() {
         ))}
       </section>
 
+      {fileToDelete && <ConfirmDialog title="Xóa file này?" description={`Bạn có chắc muốn xóa “${fileToDelete.name}” khỏi project?`} confirmLabel="Xóa file" onCancel={() => setFileToDelete(null)} onConfirm={() => void confirmDelete()} />}
       <footer className="storage-footer"><span><i /> Đang lưu trên Cloudflare R2</span><span>{files.length} file <b>·</b> {formatBytes(totalSize)} đang dùng</span></footer>
     </section>
   );
