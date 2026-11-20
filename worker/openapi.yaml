@@ -60,7 +60,12 @@ paths:
   /api/projects:
     get:
       summary: List projects owned by the current SSO user
-      description: Returns up to 100 projects owned by the SSO subject, sorted by most recently updated. Project sharing is not supported.
+      description: Returns up to 100 projects owned by the SSO subject, sorted by most recently updated. Archived projects are excluded unless includeDeleted=true. Project sharing is not supported.
+      parameters:
+        - in: query
+          name: includeDeleted
+          description: Include soft-deleted projects in the result.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Projects owned by the authenticated SSO subject
@@ -77,7 +82,7 @@ paths:
         "503": { description: "Firestore service account is not configured or lacks access" }
     post:
       summary: Create a project for the current SSO user
-      description: Creates a private project owned by the authenticated SSO subject. The API currently has no project get-by-id, update, or delete operation.
+      description: Creates a private active project owned by the authenticated SSO subject.
       requestBody:
         required: true
         content:
@@ -104,10 +109,58 @@ paths:
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
         "503": { description: "Firestore service account is not configured or lacks access" }
+  /api/projects/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      summary: Soft-delete a project
+      description: Archives the project while retaining all associated files. Archived projects no longer accept uploads.
+      responses:
+        "200":
+          description: Archived project
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project]
+                properties:
+                  project: { $ref: "#/components/schemas/Project" }
+        "404": { description: "Project not found or not owned by the current SSO user" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
+  /api/projects/{id}/restore:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Restore an archived project
+      description: Makes the project active again. Its files remain associated with it.
+      responses:
+        "200":
+          description: Restored project
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project]
+                properties:
+                  project: { $ref: "#/components/schemas/Project" }
+        "404": { description: "Project not found or not owned by the current SSO user" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+        "503": { description: "Firestore service account is not configured or lacks access" }
   /api/files:
     get:
       summary: List the current user's files
-      description: Returns up to 100 files per page. Pass the returned cursor to fetch the next page. Files are private to the authenticated SSO subject and are not currently associated with project IDs.
+      description: Returns up to 100 files per page. Pass the returned cursor to fetch the next page. Files are private to the authenticated SSO subject. Legacy files may have projectId=null until assigned to a project.
       parameters:
         - in: query
           name: cursor
@@ -128,8 +181,13 @@ paths:
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
     post:
       summary: Upload one file (maximum 25 MB)
-      description: Upload raw file bytes as the request body, not multipart/form-data. URL-encode the original filename in X-File-Name. Content-Type is retained as file metadata.
+      description: Upload raw file bytes as the request body, not multipart/form-data. URL-encode the original filename in X-File-Name. Content-Type is retained as file metadata. Every upload must be assigned to an active project owned by the current SSO user.
       parameters:
+        - in: header
+          name: X-Project-Id
+          required: true
+          description: UUID of an active project owned by the current SSO user.
+          schema: { type: string, format: uuid }
         - in: header
           name: X-File-Name
           required: true
@@ -150,6 +208,44 @@ paths:
                 properties:
                   item: { $ref: "#/components/schemas/FileItem" }
         "413": { description: "File exceeds 25 MB" }
+        "400": { description: "Missing or invalid X-Project-Id or X-File-Name" }
+        "404": { description: "Project not found or not owned by the current SSO user" }
+        "409": { description: "Project is archived" }
+        "401": { description: "Missing, expired, or invalid SSO access token" }
+        "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
+        "502": { description: "HyperDataLab SSO userinfo is unavailable" }
+  /api/files/{id}/project:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      summary: Assign a file to a project
+      description: Assigns or reassigns one of the current user's files to an active project they own. Used to map legacy unassigned files.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectId]
+              additionalProperties: false
+              properties:
+                projectId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: File with updated project association
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item]
+                properties:
+                  item: { $ref: "#/components/schemas/FileItem" }
+        "400": { description: "Invalid JSON or projectId" }
+        "404": { description: "File or owned project not found" }
+        "409": { description: "Project is archived" }
         "401": { description: "Missing, expired, or invalid SSO access token" }
         "403": { description: "Account email is not verified under @hyperdatalab.org, or browser origin is not allowed" }
         "502": { description: "HyperDataLab SSO userinfo is unavailable" }
@@ -200,19 +296,21 @@ components:
         writingLabUrl: { type: string, maxLength: 2048, description: HTTPS URL (HTTP allowed for localhost development), or empty to disable Writing Lab }
     Project:
       type: object
-      required: [id, name, description, createdAt, updatedAt]
+      required: [id, name, description, createdAt, updatedAt, deletedAt]
       properties:
         id: { type: string, format: uuid, description: Stable project identifier for future Research Hub modules }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 1000 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        deletedAt: { type: [string, "null"], format: date-time, description: Null while active; timestamp when archived }
     FileItem:
       type: object
-      required: [id, name, contentType, size, uploadedAt]
+      required: [id, name, contentType, size, uploadedAt, projectId]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         contentType: { type: string }
         size: { type: integer, minimum: 0 }
         uploadedAt: { type: string, format: date-time }
+        projectId: { type: [string, "null"], format: uuid, description: Null only for legacy files until manually assigned }

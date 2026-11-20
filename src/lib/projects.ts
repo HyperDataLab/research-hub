@@ -4,6 +4,7 @@ export interface ResearchProject {
   description: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
 }
 
 const apiUrl = (process.env.NEXT_PUBLIC_FILE_API_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
@@ -23,8 +24,9 @@ async function request<T>(accessToken: string, path: string, init?: RequestInit)
   return response.json() as Promise<T>;
 }
 
-export async function listProjects(accessToken: string): Promise<ResearchProject[]> {
-  const result = await request<{ items: ResearchProject[] }>(accessToken, "/api/projects");
+export async function listProjects(accessToken: string, includeDeleted = false): Promise<ResearchProject[]> {
+  const path = includeDeleted ? "/api/projects?includeDeleted=true" : "/api/projects";
+  const result = await request<{ items: ResearchProject[] }>(accessToken, path);
   return result.items;
 }
 
@@ -37,5 +39,15 @@ export async function createProject(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
+  return result.project;
+}
+
+export async function deleteProject(accessToken: string, id: string): Promise<ResearchProject> {
+  const result = await request<{ project: ResearchProject }>(accessToken, `/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return result.project;
+}
+
+export async function restoreProject(accessToken: string, id: string): Promise<ResearchProject> {
+  const result = await request<{ project: ResearchProject }>(accessToken, `/api/projects/${encodeURIComponent(id)}/restore`, { method: "POST" });
   return result.project;
 }

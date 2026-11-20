@@ -1,6 +1,6 @@
 # Research Hub API cho hệ thống tích hợp
 
-Tài liệu này mô tả các API Worker hiện có để hệ thống khác có thể tạo project, liệt kê file, upload, download và xóa file.
+Tài liệu này mô tả các API Worker để hệ thống khác có thể tạo/lưu trữ project, liệt kê file theo project, upload, gắn file cũ vào project, download và xóa file.
 
 ## Base URL
 
@@ -33,7 +33,7 @@ Các lời gọi từ trình duyệt cần thêm origin của frontend vào `ALL
 GET /api/projects
 ```
 
-Trả tối đa 100 project thuộc SSO subject hiện tại, mới cập nhật trước. Chưa có phân trang, chia sẻ project, hoặc endpoint đọc/cập nhật/xóa một project theo ID.
+Trả tối đa 100 project thuộc SSO subject hiện tại, mới cập nhật trước. Project đã lưu trữ bị ẩn theo mặc định; thêm `?includeDeleted=true` để lấy cả project lưu trữ. Chưa có chia sẻ project.
 
 ```bash
 curl "$BASE_URL/api/projects" \
@@ -48,7 +48,8 @@ curl "$BASE_URL/api/projects" \
       "name": "AI trong nghiên cứu Sinh học",
       "description": "Nghiên cứu tác động của AI",
       "createdAt": "2026-11-18T10:00:00.000Z",
-      "updatedAt": "2026-11-18T10:00:00.000Z"
+      "updatedAt": "2026-11-18T10:00:00.000Z",
+      "deletedAt": null
     }
   ]
 }
@@ -72,6 +73,23 @@ curl -X POST "$BASE_URL/api/projects" \
 
 Trả `201 Created` với `{ "project": { ... } }`.
 
+### Lưu trữ và khôi phục project
+
+```http
+DELETE /api/projects/{projectId}
+POST   /api/projects/{projectId}/restore
+```
+
+`DELETE` lưu trữ mềm project: project bị ẩn khỏi danh sách mặc định và không nhận upload mới. File đang thuộc project vẫn được giữ nguyên, có thể xem và tải xuống. `restore` đưa project về trạng thái hoạt động; các file vẫn gắn với project đó.
+
+```bash
+curl -X DELETE "$BASE_URL/api/projects/$PROJECT_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+curl -X POST "$BASE_URL/api/projects/$PROJECT_ID/restore" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
 ## File
 
 ### Liệt kê file
@@ -88,7 +106,7 @@ curl "$BASE_URL/api/files" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-Response gồm `items` (`id`, `name`, `contentType`, `size`, `uploadedAt`) và `cursor` (string hoặc `null`).
+Response gồm `items` (`id`, `name`, `contentType`, `size`, `uploadedAt`, `projectId`) và `cursor` (string hoặc `null`). Mỗi file mới có một `projectId`; file cũ chưa chuyển đổi có `projectId: null`. Dùng `projectId` phía client để lọc file theo project.
 
 ### Upload file
 
@@ -97,6 +115,7 @@ POST /api/files
 Authorization: Bearer <SSO_ACCESS_TOKEN>
 Content-Type: <file MIME type>
 X-File-Name: <URL-encoded filename>
+X-Project-Id: <UUID của project đang hoạt động>
 
 <raw file bytes>
 ```
@@ -108,10 +127,29 @@ curl -X POST "$BASE_URL/api/files" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/pdf" \
   -H "X-File-Name: Bao%20cao.pdf" \
+  -H "X-Project-Id: $PROJECT_ID" \
   --data-binary "@./Bao cao.pdf"
 ```
 
-Trả `201 Created` với `{ "item": { "id", "name", "contentType", "size", "uploadedAt" } }`. File thuộc người dùng đang đăng nhập; API hiện chưa gắn file với `projectId`.
+`X-Project-Id` là bắt buộc. Worker kiểm tra project thuộc người dùng hiện tại và chưa được lưu trữ. Thiếu/sai UUID trả `400`, project không tồn tại hoặc không thuộc user trả `404`, project lưu trữ trả `409`. Trả `201 Created` với `{ "item": { "id", "name", "contentType", "size", "uploadedAt", "projectId" } }`.
+
+### Gắn hoặc chuyển file sang project khác
+
+```http
+PUT /api/files/{fileId}/project
+Content-Type: application/json
+```
+
+Dùng endpoint này để chuyển từng file cũ chưa có project hoặc đổi project của file. Project đích phải đang hoạt động và thuộc user hiện tại.
+
+```bash
+curl -X PUT "$BASE_URL/api/files/$FILE_ID/project" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"projectId\":\"$PROJECT_ID\"}"
+```
+
+Trả `200 OK` với `{ "item": { ... } }`. Không có endpoint để gỡ liên kết; mỗi file cần thuộc đúng một project sau khi chuyển đổi.
 
 ### Download file
 

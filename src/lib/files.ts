@@ -4,6 +4,7 @@ export interface StoredFile {
   contentType: string;
   size: number;
   uploadedAt: string;
+  projectId: string | null;
 }
 
 const apiUrl = (process.env.NEXT_PUBLIC_FILE_API_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
@@ -21,17 +22,25 @@ async function request<T>(accessToken: string, path: string, init?: RequestInit)
 }
 
 export async function listFiles(accessToken: string): Promise<StoredFile[]> {
-  const result = await request<{ items: StoredFile[] }>(accessToken, "/api/files");
-  return result.items;
+  const items: StoredFile[] = [];
+  let cursor: string | null = null;
+  do {
+    const cursorParam: string = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const result: { items: StoredFile[]; cursor: string | null } = await request<{ items: StoredFile[]; cursor: string | null }>(accessToken, `/api/files${cursorParam}`);
+    items.push(...result.items);
+    cursor = result.cursor;
+  } while (cursor);
+  return items;
 }
 
-export async function uploadFile(accessToken: string, file: File): Promise<void> {
+export async function uploadFile(accessToken: string, projectId: string, file: File): Promise<void> {
   const response = await fetch(`${apiUrl}/api/files`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": file.type || "application/octet-stream",
       "X-File-Name": encodeURIComponent(file.name),
+      "X-Project-Id": projectId,
     },
     body: file,
   });
@@ -39,6 +48,15 @@ export async function uploadFile(accessToken: string, file: File): Promise<void>
     const body = await response.json().catch(() => null) as { error?: string } | null;
     throw new Error(body?.error ?? `Worker trả về lỗi ${response.status}.`);
   }
+}
+
+export async function assignFileToProject(accessToken: string, id: string, projectId: string): Promise<StoredFile> {
+  const result = await request<{ item: StoredFile }>(accessToken, `/api/files/${encodeURIComponent(id)}/project`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectId }),
+  });
+  return result.item;
 }
 
 export async function downloadFile(accessToken: string, file: StoredFile): Promise<void> {

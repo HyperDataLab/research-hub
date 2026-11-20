@@ -30,6 +30,7 @@ interface ProjectRow {
   description: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
 }
 
 interface ProjectInput {
@@ -199,13 +200,38 @@ function projectFromDocument(document: FirestoreDocument, ownerSub: string): Pro
     description: firestoreString(document, "description"),
     createdAt,
     updatedAt,
+    deletedAt: fields?.deletedAt?.timestampValue ?? null,
   };
+}
+
+async function getOwnedProject(env: Env, id: string, ownerSub: string): Promise<ProjectRow | null> {
+  try {
+    const document = await firestoreRequest<FirestoreDocument>(env, `/projects/${encodeURIComponent(id)}`);
+    return projectFromDocument(document, ownerSub);
+  } catch (error) {
+    if (error instanceof FirestoreFailure && error.status === 404) return null;
+    throw error;
+  }
+}
+
+async function setProjectDeletedAt(env: Env, id: string, deletedAt: string | null): Promise<void> {
+  const updateMask = new URLSearchParams();
+  updateMask.append("updateMask.fieldPaths", "deletedAt");
+  updateMask.append("updateMask.fieldPaths", "updatedAt");
+  const fields: Record<string, { timestampValue: string }> = {
+    updatedAt: { timestampValue: new Date().toISOString() },
+  };
+  if (deletedAt) fields.deletedAt = { timestampValue: deletedAt };
+  await firestoreRequest<FirestoreDocument>(env, `/projects/${encodeURIComponent(id)}?${updateMask.toString()}`, {
+    method: "PATCH",
+    body: JSON.stringify({ fields }),
+  });
 }
 
 function corsHeaders(request: Request, env: Env): Headers {
   const headers = new Headers({
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-File-Name",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-File-Name, X-Project-Id",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   });
@@ -369,7 +395,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
         },
       }),
     });
-    const items = result.flatMap((row) => row.document ? [projectFromDocument(row.document, uid)].filter((project): project is ProjectRow => project !== null) : []);
+    const includeDeleted = url.searchParams.get("includeDeleted") === "true";
+    const items = result.flatMap((row) => row.document ? [projectFromDocument(row.document, uid)].filter((project): project is ProjectRow => project !== null && (includeDeleted || !project.deletedAt)) : []);
     items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
     return json({ items }, 200, headers);
   }
@@ -386,6 +413,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
       description: input.description,
       createdAt: now,
       updatedAt: now,
+      deletedAt: null,
     };
     await firestoreRequest<FirestoreDocument>(env, `/projects?documentId=${encodeURIComponent(project.id)}`, {
       method: "POST",
@@ -402,6 +430,24 @@ async function handle(request: Request, env: Env): Promise<Response> {
     return json({ project }, 201, headers);
   }
 
+  const projectMatch = url.pathname.match(/^\/api\/projects\/([0-9a-f-]{36})(?:\/(restore))?$/i);
+  if (projectMatch) {
+    const projectId = projectMatch[1].toLowerCase();
+    const project = await getOwnedProject(env, projectId, uid);
+    if (!project) return json({ error: "Project not found." }, 404, headers);
+
+    if (request.method === "DELETE" && !projectMatch[2]) {
+      if (!project.deletedAt) await setProjectDeletedAt(env, projectId, new Date().toISOString());
+      const updated = await getOwnedProject(env, projectId, uid);
+      return json({ project: updated }, 200, headers);
+    }
+    if (request.method === "POST" && projectMatch[2] === "restore") {
+      if (project.deletedAt) await setProjectDeletedAt(env, projectId, null);
+      const updated = await getOwnedProject(env, projectId, uid);
+      return json({ project: updated }, 200, headers);
+    }
+  }
+
   if (url.pathname === "/api/files" && request.method === "GET") {
     const cursor = url.searchParams.get("cursor") ?? undefined;
     const listed = await env.FILES_BUCKET.list({ prefix: `${uid}/`, cursor, limit: LIST_LIMIT });
@@ -410,12 +456,19 @@ async function handle(request: Request, env: Env): Promise<Response> {
       name: object.customMetadata?.originalName ?? "download",
       contentType: object.customMetadata?.contentType ?? "application/octet-stream",
       size: object.size,
-      uploadedAt: object.uploaded.toISOString(),
+      uploadedAt: object.customMetadata?.uploadedAt ?? object.uploaded.toISOString(),
+      projectId: object.customMetadata?.projectId ?? null,
     }));
     return json({ items, cursor: listed.truncated ? listed.cursor : null }, 200, headers);
   }
 
   if (url.pathname === "/api/files" && request.method === "POST") {
+    const projectId = request.headers.get("X-Project-Id")?.trim().toLowerCase() ?? "";
+    if (!/^[0-9a-f-]{36}$/i.test(projectId)) return json({ error: "X-Project-Id header is required and must be a project UUID." }, 400, headers);
+    const project = await getOwnedProject(env, projectId, uid);
+    if (!project) return json({ error: "Project not found." }, 404, headers);
+    if (project.deletedAt) return json({ error: "Cannot upload files to an archived project." }, 409, headers);
+
     const headerName = request.headers.get("X-File-Name");
     if (!headerName) return json({ error: "X-File-Name header is required." }, 400, headers);
     let suppliedName = headerName;
@@ -427,6 +480,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (contentLength > MAX_FILE_SIZE) return json({ error: "Maximum file size is 25 MB." }, 413, headers);
 
     const id = crypto.randomUUID();
+    const uploadedAt = new Date().toISOString();
     let size = 0;
     const guardedBody = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
@@ -439,10 +493,10 @@ async function handle(request: Request, env: Env): Promise<Response> {
     try {
       const stored = await env.FILES_BUCKET.put(`${uid}/${id}`, guardedBody, {
         httpMetadata: { contentType: "application/octet-stream" },
-        customMetadata: { originalName: name, contentType: contentType.slice(0, 120) },
+        customMetadata: { originalName: name, contentType: contentType.slice(0, 120), projectId, uploadedAt },
       });
       return json({
-        item: { id, name, contentType, size: stored.size, uploadedAt: stored.uploaded.toISOString() },
+        item: { id, name, contentType, size: stored.size, uploadedAt, projectId },
       }, 201, headers);
     } catch (error) {
       if (error instanceof Error && error.message === "FILE_TOO_LARGE") {
@@ -450,6 +504,35 @@ async function handle(request: Request, env: Env): Promise<Response> {
       }
       throw error;
     }
+  }
+
+  const fileProjectMatch = url.pathname.match(/^\/api\/files\/([0-9a-f-]{36})\/project$/i);
+  if (fileProjectMatch && request.method === "PUT") {
+    let value: unknown;
+    try { value = await request.json(); } catch { return json({ error: "Project assignment must be valid JSON." }, 400, headers); }
+    const projectId = value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>).projectId
+      : null;
+    if (typeof projectId !== "string" || !/^[0-9a-f-]{36}$/i.test(projectId)) {
+      return json({ error: "A valid projectId is required." }, 400, headers);
+    }
+    const normalizedProjectId = projectId.toLowerCase();
+    const project = await getOwnedProject(env, normalizedProjectId, uid);
+    if (!project) return json({ error: "Project not found." }, 404, headers);
+    if (project.deletedAt) return json({ error: "Files can only be assigned to an active project." }, 409, headers);
+
+    const id = fileProjectMatch[1].toLowerCase();
+    const key = `${uid}/${id}`;
+    const object = await env.FILES_BUCKET.get(key);
+    if (!object) return json({ error: "File not found." }, 404, headers);
+    const uploadedAt = object.customMetadata?.uploadedAt ?? object.uploaded.toISOString();
+    const name = safeFileName(object.customMetadata?.originalName ?? "download");
+    const contentType = object.customMetadata?.contentType ?? object.httpMetadata?.contentType ?? "application/octet-stream";
+    await env.FILES_BUCKET.put(key, object.body, {
+      httpMetadata: object.httpMetadata,
+      customMetadata: { ...object.customMetadata, originalName: name, contentType, projectId: normalizedProjectId, uploadedAt },
+    });
+    return json({ item: { id, name, contentType, size: object.size, uploadedAt, projectId: normalizedProjectId } }, 200, headers);
   }
 
   const match = url.pathname.match(/^\/api\/files\/([0-9a-f-]{36})$/i);
