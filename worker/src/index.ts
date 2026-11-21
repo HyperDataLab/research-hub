@@ -721,6 +721,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const contentType = request.headers.get("Content-Type") ?? "application/octet-stream";
     const contentLength = Number(request.headers.get("Content-Length") ?? 0);
     if (!request.body) return json({ error: "File content is required." }, 400, headers);
+    if (!Number.isSafeInteger(contentLength) || contentLength <= 0) return json({ error: "Content-Length header is required." }, 411, headers);
     if (contentLength > MAX_FILE_SIZE) return json({ error: "Maximum file size is 25 MB." }, 413, headers);
 
     const id = crypto.randomUUID();
@@ -733,12 +734,17 @@ async function handle(request: Request, env: Env): Promise<Response> {
         controller.enqueue(chunk);
       },
     }));
+    const fixedLength = new FixedLengthStream(contentLength);
+    const writeStream = guardedBody.pipeTo(fixedLength.writable);
 
     try {
-      const stored = await env.FILES_BUCKET.put(`projects/${projectId}/${id}`, guardedBody, {
-        httpMetadata: { contentType: "application/octet-stream" },
-        customMetadata: { originalName: name, contentType: contentType.slice(0, 120), projectId, uploadedAt, uploadedBy: uid },
-      });
+      const [stored] = await Promise.all([
+        env.FILES_BUCKET.put(`projects/${projectId}/${id}`, fixedLength.readable, {
+          httpMetadata: { contentType: "application/octet-stream" },
+          customMetadata: { originalName: name, contentType: contentType.slice(0, 120), projectId, uploadedAt, uploadedBy: uid },
+        }),
+        writeStream,
+      ] as const);
       return json({
         item: { id, name, contentType, size: stored.size, uploadedAt, projectId },
       }, 201, headers);

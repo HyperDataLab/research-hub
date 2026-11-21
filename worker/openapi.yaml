@@ -9,7 +9,7 @@ info:
     Obtain it through the registered OAuth Authorization Code + PKCE client with scopes
     email, profile, and hyperdatalab_profile. The last scope is required for the role claim.
 servers:
-  - url: https://research-hub-files.hyperdatalab.workers.dev
+  - url: https://research-hub-files.hpl-storage.workers.dev
     description: Production
   - url: http://127.0.0.1:8787
     description: Local Wrangler development server

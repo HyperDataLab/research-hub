@@ -1,12 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "research-hub-files",
+  "account_id": "7348695cf8059ab2645e9ddca7f3e4e8",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
   "vars": {
     "SSO_BASE_URL": "https://rpr-grobid-gateway.hpl-storage.workers.dev",
     "FIREBASE_PROJECT_ID": "hyperdatalab-researchhub",
-    "ALLOWED_ORIGINS": "http://localhost:3000,https://researchhub.hyperdatalab.org"
+    "ALLOWED_ORIGINS": "http://localhost:3000,https://researchhub.hyperdatalab.org,https://paperlab.hyperdatalab.org"
   },
   "r2_buckets": [
     {

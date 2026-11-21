@@ -16,6 +16,7 @@ import {
   isSsoConfigured,
   parseSsoSession,
   startSsoLogin,
+  startSsoSessionAutoRefresh,
   subscribeSsoSession,
   type SsoSession,
 } from "@/lib/sso";
@@ -107,6 +108,8 @@ export function ResearchHubShell({ children }: { children: ReactNode }) {
     hydrateSsoSessionFromCallback();
     if (!pathname.includes("/auth/callback")) logPendingSsoUserInfoDiagnostics();
   }, [pathname]);
+
+  useEffect(() => startSsoSessionAutoRefresh(), []);
 
   useEffect(() => {
     if (!accessToken) return;

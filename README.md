@@ -19,6 +19,8 @@ A Next.js research workspace using HyperDataLab SSO for identity, a Cloudflare W
 
 In ResearchPulse, open **Admin → Connected applications** and register this as a **Public** client. Do not create or use a client secret in the browser. Request the scopes `email profile hyperdatalab_profile`; the last scope is required for the SSO role claim used by admin-only features.
 
+For automatic session renewal, the ResearchPulse SSO Worker must support `grant_type=refresh_token`; apply its `0010_sso_refresh_tokens.sql` migration and deploy the Worker before users sign in again.
+
 For local development, register the exact callback URL:
 
 ```text
@@ -102,4 +104,4 @@ Every route requires `Authorization: Bearer <HyperDataLab SSO access token>`. Th
 | `GET` | `/api/files/{id}?projectId={id}` | Download a project file with membership authorization |
 | `DELETE` | `/api/files/{id}?projectId={id}` | Delete a project file with membership authorization |
 
-The SSO access token lasts one hour and has no refresh token. The SPA keeps the session in tab-scoped `sessionStorage` so reloading the page does not require another login; users must sign in again after the token expires or the tab is closed. Sign-out revokes the token and clears the stored session. The short-lived PKCE state and verifier are also kept in `sessionStorage` for the callback round-trip.
+The SPA keeps the SSO session in tab-scoped `sessionStorage`. It refreshes the one-hour access token five minutes before expiry and when a suspended tab becomes visible, rotating the refresh token automatically. The provider refresh token has a fixed 30-day lifetime, so users must sign in again after it expires or if the tab is closed. Sign-out revokes the token family and clears the stored session. The short-lived PKCE state and verifier are also kept in `sessionStorage` for the callback round-trip.

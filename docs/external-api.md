@@ -6,7 +6,7 @@ Tài liệu này mô tả các API Worker để hệ thống khác có thể t�
 
 | Môi trường | URL |
 |---|---|
-| Production | `https://research-hub-files.hyperdatalab.workers.dev` |
+| Production | `https://research-hub-files.hpl-storage.workers.dev` |
 | Local Worker | `http://127.0.0.1:8787` |
 
 OpenAPI đầy đủ nằm tại [`worker/openapi.yaml`](../worker/openapi.yaml), có thể import vào Postman.
