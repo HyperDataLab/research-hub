@@ -14,5 +14,12 @@
       "binding": "FILES_BUCKET",
       "bucket_name": "research-hub-files"
     }
+  ],
+  "services": [
+    {
+      "binding": "SSO_GATEWAY",
+      "service": "rpr-grobid-gateway",
+      "remote": true
+    }
   ]
 }

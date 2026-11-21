@@ -1,5 +1,6 @@
 interface Env {
   FILES_BUCKET: R2Bucket;
+  SSO_GATEWAY: Fetcher;
   SSO_BASE_URL: string;
   ALLOWED_ORIGINS: string;
   FIREBASE_PROJECT_ID: string;
@@ -460,16 +461,19 @@ async function getSsoIdentity(request: Request, env: Env): Promise<SsoIdentity> 
 
   let response: Response;
   try {
-    response = await fetch(new URL("/oauth/userinfo", env.SSO_BASE_URL), {
+    response = await env.SSO_GATEWAY.fetch(new Request(new URL("/oauth/userinfo", env.SSO_BASE_URL), {
       headers: { Authorization: `Bearer ${token}` },
-    });
+    }));
   } catch {
     throw new AuthFailure("HyperDataLab SSO is unavailable.", 502);
   }
   if (response.status === 401 || response.status === 403) {
     throw new AuthFailure("The SSO access token is invalid or expired.", 401);
   }
-  if (!response.ok) throw new AuthFailure("Could not verify the SSO access token.", 502);
+  if (!response.ok) {
+    console.error("[Research Hub] SSO userinfo returned a non-success status.", { status: response.status });
+    throw new AuthFailure("Could not verify the SSO access token.", 502);
+  }
 
   const profile = await response.json() as SsoUserInfo;
   const email = typeof profile.email === "string" ? profile.email.trim().toLowerCase() : "";
