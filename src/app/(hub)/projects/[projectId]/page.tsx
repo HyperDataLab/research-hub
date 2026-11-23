@@ -10,7 +10,7 @@ import { getToolSettings, type ToolSettings } from "@/lib/tool-settings";
 import { refreshSsoSessionIfNeeded } from "@/lib/sso";
 
 const EMPTY_TOOL_SETTINGS: ToolSettings = { paperLabUrl: "", writingLabUrl: "" };
-type PaperLabHandoff = { popup: Window; state: string; projectId: string; origin: string; timer: number };
+type ToolHandoff = { popup: Window; state: string; projectId: string; origin: string; timer: number };
 
 const HANDOFF_REQUEST = "paperlab.sso.handoff.request";
 const REFRESH_REQUEST = "paperlab.sso.refresh.request";
@@ -70,8 +70,8 @@ export default function ProjectWorkspacePage() {
   const [memberError, setMemberError] = useState("");
   const [memberNotice, setMemberNotice] = useState("");
   const [memberToRemove, setMemberToRemove] = useState<ProjectMember | null>(null);
-  const pendingHandoff = useRef<PaperLabHandoff | null>(null);
-  const activeHandoffs = useRef(new Map<string, PaperLabHandoff>());
+  const pendingHandoff = useRef<ToolHandoff | null>(null);
+  const activeHandoffs = useRef(new Map<string, ToolHandoff>());
   const [toolSettingsState, setToolSettingsState] = useState<{ accessToken: string; settings: ToolSettings; error: string } | null>(null);
 
   useEffect(() => {
@@ -104,7 +104,6 @@ export default function ProjectWorkspacePage() {
   const toolSettings = currentToolSettings?.settings ?? EMPTY_TOOL_SETTINGS;
   const paperLabUrl = toolUrl(toolSettings.paperLabUrl, projectId);
   const writingLabUrl = toolUrl(toolSettings.writingLabUrl, projectId);
-  const paperLabOrigin = paperLabUrl ? new URL(paperLabUrl).origin : "";
 
   async function handleAddMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -191,8 +190,10 @@ export default function ProjectWorkspacePage() {
     pendingHandoff.current = null;
   }, []);
 
-  function openPaperLab() {
-    if (!paperLabUrl || !project || !paperLabOrigin) return;
+  function openProjectTool(baseUrl: string | null) {
+    if (!baseUrl || !project) return;
+    const target = new URL(baseUrl);
+    const origin = target.origin;
     const popup = window.open("about:blank", "_blank");
     if (!popup) {
       setHandoffError("Trình duyệt đã chặn tab mới. Hãy cho phép popup của ResearchHub rồi thử lại.");
@@ -205,12 +206,19 @@ export default function ProjectWorkspacePage() {
       const pending = pendingHandoff.current;
       if (pending?.state !== state) return;
       pendingHandoff.current = null;
-      setHandoffError("PaperLab không phản hồi phiên SSO. Hãy kiểm tra cấu hình nguồn ResearchHub trong PaperLab rồi mở lại.");
+      setHandoffError("Công cụ không phản hồi phiên SSO. Hãy kiểm tra cấu hình ResearchHub handoff của công cụ rồi thử lại.");
     }, 20_000);
-    pendingHandoff.current = { popup, state, projectId, origin: paperLabOrigin, timer };
-    const target = new URL(paperLabUrl);
+    pendingHandoff.current = { popup, state, projectId, origin, timer };
     target.searchParams.set("rh_handoff", state);
     popup.location.replace(target.toString());
+  }
+
+  function openPaperLab() {
+    openProjectTool(paperLabUrl);
+  }
+
+  function openWritingLab() {
+    openProjectTool(writingLabUrl);
   }
 
   return (
@@ -251,7 +259,7 @@ export default function ProjectWorkspacePage() {
               {handoffError && <div className="notice notice-error" role="alert">{handoffError}</div>}
               <div className="project-tools-grid">
                 <ProjectTool name="PaperLab" kind="paper" href={paperLabUrl} onLaunch={openPaperLab} />
-                <ProjectTool name="Writing Lab" kind="writing" href={writingLabUrl} />
+                <ProjectTool name="Writing Lab" kind="writing" href={writingLabUrl} onLaunch={openWritingLab} />
               </div>
             </section>
 

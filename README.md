@@ -7,7 +7,7 @@ A Next.js research workspace using HyperDataLab SSO for identity, a Cloudflare W
 - Authenticated workspace with a left sidebar and separate `/projects` and `/files` pages; `/` opens the projects page.
 - Next.js App Router file library with upload, list, download, and delete.
 - SSO-owned research projects with stable IDs, shared with verified Research Hub users by project owner.
-- The PaperLab project tool opens with the current project and uses an exact-origin `postMessage` handoff to pass the active SSO session without putting the token in a URL; other tool links keep their normal launch behavior.
+- PaperLab and Writing Lab open with the current project and use an exact-origin `postMessage` handoff to pass the active SSO session without putting the token in a URL.
 - OAuth Authorization Code + PKCE for a browser-only **Public** SSO client.
 - Strict email eligibility: `email_verified` must be `true` and the full address must end exactly in `@hyperdatalab.org`.
 - Worker rechecks the SSO token and email on every API call; project files use project-scoped R2 keys and are available to the owner and members.
@@ -50,7 +50,7 @@ The project ID is configured in `worker/wrangler.jsonc`. Install dependencies an
 
 This checkout also includes the Firebase Admin SDK key file in the project root. To load it without copying the private key manually, run `npm run worker:secrets:local`. To load the same credentials locally and upload them as Cloudflare Worker secrets, run `npm run worker:secrets:deploy`. The command verifies that the service account belongs to the configured Firebase project and never prints the key. Service-account JSON files are gitignored.
 
-Each project opens a workspace with PaperLab and Writing Lab launch cards. An administrator can configure their shared URLs from **Cấu hình công cụ** in the Research Hub sidebar; the Worker stores the values in Firestore and checks the SSO `role=admin` claim before updates. Workspaces read the current settings at runtime and append the stable `projectId` query parameter. Leave a URL empty to show that tool as not connected.
+Each project opens a workspace with PaperLab and Writing Lab launch cards. An administrator can configure their shared URLs from **Cấu hình công cụ** in the Research Hub sidebar; the Worker stores the values in Firestore and checks the SSO `role=admin` claim before updates. Workspaces read the current settings at runtime, append the stable `projectId` query parameter, and use an exact-origin handoff to transfer the SSO session. Leave a URL empty to show that tool as not connected.
 
 ```powershell
 npm install
