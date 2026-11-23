@@ -35,14 +35,17 @@ function ToolIcon({ kind }: { kind: "paper" | "writing" }) {
 }
 
 function ProjectTool({ name, kind, href, onLaunch }: { name: string; kind: "paper" | "writing"; href: string | null; onLaunch?: () => void }) {
+  const description = kind === "paper"
+    ? "Đọc và phân tích tài liệu trong project này."
+    : "Soạn thảo nội dung học thuật theo project này.";
   const content = (
     <>
       <span className="project-tool-icon"><ToolIcon kind={kind} /></span>
       <span className="project-tool-copy">
         <strong>{name}</strong>
-        <span>{href ? `Mở ${name} với workspace dự án này.` : "Chưa cấu hình địa chỉ kết nối."}</span>
+        <span>{href ? description : "Chưa cấu hình địa chỉ kết nối."}</span>
       </span>
-      <span className="project-tool-action">{href ? "Mở công cụ" : "Chưa kết nối"}{href && <span aria-hidden="true">↗</span>}</span>
+      <span className="project-tool-action">{href ? `Mở ${name}` : "Chưa kết nối"}{href && <span aria-hidden="true">↗</span>}</span>
     </>
   );
 
@@ -232,44 +235,46 @@ export default function ProjectWorkspacePage() {
             <p className="eyebrow">WORKSPACE DỰ ÁN</p>
             <h1>{project.name}</h1>
             <p className="intro-copy">{project.description || "Chọn công cụ để tiếp tục làm việc trong dự án này."}</p>
+            <p className="project-workspace-id"><span>Mã project</span><code>{project.id}</code></p>
           </header>
 
-          <section className="project-tools" aria-labelledby="project-tools-title">
-            <div className="project-tools-heading">
-              <div>
-                <p className="eyebrow">CÔNG CỤ</p>
-                <h2 id="project-tools-title">Tiếp tục với</h2>
+          <div className="project-workspace-grid">
+            <section className="project-tools" aria-labelledby="project-tools-title">
+              <div className="project-tools-heading">
+                <div>
+                  <p className="eyebrow">CÔNG CỤ</p>
+                  <h2 id="project-tools-title">Làm việc trong project</h2>
+                </div>
               </div>
-              <code className="project-id">ID: {project.id}</code>
-            </div>
-            {currentToolSettings?.error && <div className="notice notice-error" role="alert">{currentToolSettings.error}</div>}
-            {handoffError && <div className="notice notice-error" role="alert">{handoffError}</div>}
-            <div className="project-tools-grid">
-              <ProjectTool name="PaperLab" kind="paper" href={paperLabUrl} onLaunch={openPaperLab} />
-              <ProjectTool name="Writing Lab" kind="writing" href={writingLabUrl} />
-            </div>
-            <p className="project-tools-note">Hai công cụ sẽ nhận ID ổn định này khi được kết nối.</p>
-          </section>
-
-          {project.accessRole === "owner" ? (
-            <section className="project-members-panel" aria-labelledby="project-members-title">
-              <div className="project-members-heading">
-                <div><p className="eyebrow">CỘNG TÁC</p><h2 id="project-members-title">Thành viên <span className="count">{members.length.toString().padStart(2, "0")}</span></h2></div>
-                <span className="project-owner-badge">Owner · {session.profile.email}</span>
+              <p className="project-tools-intro">Chọn công cụ để tiếp tục nghiên cứu với dữ liệu của project này.</p>
+              {currentToolSettings?.error && <div className="notice notice-error" role="alert">{currentToolSettings.error}</div>}
+              {handoffError && <div className="notice notice-error" role="alert">{handoffError}</div>}
+              <div className="project-tools-grid">
+                <ProjectTool name="PaperLab" kind="paper" href={paperLabUrl} onLaunch={openPaperLab} />
+                <ProjectTool name="Writing Lab" kind="writing" href={writingLabUrl} />
               </div>
-              <p className="project-members-help">Chỉ thêm được tài khoản HyperDataLab đã xác minh và từng đăng nhập Research Hub. Thành viên có thể dùng công cụ và quản lý file trong project.</p>
-              <form className="project-member-form" onSubmit={(event) => void handleAddMember(event)}>
-                <label htmlFor="project-member-email">Email thành viên</label>
-                <input id="project-member-email" type="email" autoComplete="off" required pattern="[^@]+@hyperdatalab[.]org" placeholder="ten@hyperdatalab.org" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} disabled={memberBusy} />
-                <button className="project-create-button" type="submit" disabled={memberBusy}>{memberBusy ? <><span className="spinner" /> Đang xử lý</> : "Thêm thành viên"}</button>
-              </form>
-              {memberError && <div className="notice notice-error" role="alert">{memberError}</div>}
-              {memberNotice && <div className="notice notice-success" role="status">{memberNotice}</div>}
-              {members.length ? <ul className="project-member-list">{members.map((member) => <li key={member.id}><span className="project-member-avatar" aria-hidden="true">{(member.name || member.email).slice(0, 1).toUpperCase()}</span><span className="project-member-identity"><strong>{member.name || member.email}</strong><small>{member.email}</small></span><button type="button" onClick={() => void handleRemoveMember(member)} disabled={memberBusy}>Gỡ</button></li>)}</ul> : <div className="project-members-empty">Chưa có thành viên nào khác trong project.</div>}
             </section>
-          ) : (
-            <section className="project-members-panel project-shared-notice"><p className="eyebrow">PROJECT ĐƯỢC CHIA SẺ</p><p>Bạn là thành viên của project do <strong>{project.ownerEmail || "owner"}</strong> sở hữu. Bạn có thể cộng tác với công cụ và các file trong project.</p></section>
-          )}
+
+            {project.accessRole === "owner" ? (
+              <section className="project-members-panel" aria-labelledby="project-members-title">
+                <div className="project-members-heading">
+                  <div><p className="eyebrow">CỘNG TÁC</p><h2 id="project-members-title">Thành viên <span className="count">{members.length.toString().padStart(2, "0")}</span></h2></div>
+                  <span className="project-owner-badge"><strong>Chủ sở hữu</strong>{session.profile.email}</span>
+                </div>
+                <p className="project-members-help">Thêm thành viên HyperDataLab đã xác minh và từng đăng nhập Research Hub. Họ sẽ có quyền dùng công cụ và quản lý file trong project.</p>
+                <form className="project-member-form" onSubmit={(event) => void handleAddMember(event)}>
+                  <label htmlFor="project-member-email">Email thành viên</label>
+                  <input id="project-member-email" type="email" autoComplete="off" required pattern="[^@]+@hyperdatalab[.]org" placeholder="ten@hyperdatalab.org" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} disabled={memberBusy} />
+                  <button className="project-create-button" type="submit" disabled={memberBusy}>{memberBusy ? <><span className="spinner" /> Đang xử lý</> : "Thêm thành viên"}</button>
+                </form>
+                {memberError && <div className="notice notice-error" role="alert">{memberError}</div>}
+                {memberNotice && <div className="notice notice-success" role="status">{memberNotice}</div>}
+                {members.length ? <ul className="project-member-list">{members.map((member) => <li key={member.id}><span className="project-member-avatar" aria-hidden="true">{(member.name || member.email).slice(0, 1).toUpperCase()}</span><span className="project-member-identity"><strong>{member.name || member.email}</strong><small>{member.email}</small></span><button type="button" onClick={() => void handleRemoveMember(member)} disabled={memberBusy}>Gỡ</button></li>)}</ul> : <div className="project-members-empty"><strong>Chưa có thành viên</strong><span>Thêm người cộng tác bằng email tổ chức ở trên.</span></div>}
+              </section>
+            ) : (
+              <section className="project-members-panel project-shared-notice"><p className="eyebrow">PROJECT ĐƯỢC CHIA SẺ</p><h2>Không gian cộng tác</h2><p>Bạn đang là thành viên trong project do <strong>{project.ownerEmail || "owner"}</strong> sở hữu. Bạn có thể tiếp tục với các công cụ và tài liệu của nhóm.</p></section>
+            )}
+          </div>
         </>
       )}
       {memberToRemove && <ConfirmDialog title="Gỡ thành viên khỏi project?" description={`${memberToRemove.email} sẽ mất quyền truy cập workspace và file của project này.`} confirmLabel="Gỡ thành viên" onCancel={() => setMemberToRemove(null)} onConfirm={() => void confirmRemoveMember()} />}

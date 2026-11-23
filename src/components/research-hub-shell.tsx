@@ -302,8 +302,10 @@ export function ResearchHubShell({ children }: { children: ReactNode }) {
       <main className="app-shell hub-app-shell">
         <BrandHeader actions={
           <>
-            <span className="connection"><i /> Tài khoản tổ chức</span>
-            <span className="account-email">{session.profile.email}</span>
+            <div className="account-summary">
+              <span className="connection"><i /> Tài khoản tổ chức</span>
+              <span className="account-email">{session.profile.email}</span>
+            </div>
             <button className="signout-button" onClick={() => void handleSignOut()} title={`Đăng xuất ${session.profile.email}`}>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3.5H4.5v13H8m3-3 3.5-3.5L11 6.5M7 10h8" /></svg>
               <span>Đăng xuất</span>
