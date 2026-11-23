@@ -1,6 +1,6 @@
 interface Env {
   FILES_BUCKET: R2Bucket;
-  SSO_GATEWAY: Fetcher;
+  SSO_GATEWAY?: Fetcher;
   SSO_BASE_URL: string;
   ALLOWED_ORIGINS: string;
   FIREBASE_PROJECT_ID: string;
@@ -461,9 +461,12 @@ async function getSsoIdentity(request: Request, env: Env): Promise<SsoIdentity> 
 
   let response: Response;
   try {
-    response = await env.SSO_GATEWAY.fetch(new Request(new URL("/oauth/userinfo", env.SSO_BASE_URL), {
+    const userinfoRequest = new Request(new URL("/oauth/userinfo", env.SSO_BASE_URL), {
       headers: { Authorization: `Bearer ${token}` },
-    }));
+    });
+    response = env.SSO_GATEWAY
+      ? await env.SSO_GATEWAY.fetch(userinfoRequest)
+      : await fetch(userinfoRequest);
   } catch {
     throw new AuthFailure("HyperDataLab SSO is unavailable.", 502);
   }

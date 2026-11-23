@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "research-hub-files",
-  "account_id": "7348695cf8059ab2645e9ddca7f3e4e8",
+  "account_id": "124949a79dc6c5894bc492942593cb51",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
   "vars": {
@@ -13,13 +13,6 @@
     {
       "binding": "FILES_BUCKET",
       "bucket_name": "research-hub-files"
-    }
-  ],
-  "services": [
-    {
-      "binding": "SSO_GATEWAY",
-      "service": "rpr-grobid-gateway",
-      "remote": true
     }
   ]
 }

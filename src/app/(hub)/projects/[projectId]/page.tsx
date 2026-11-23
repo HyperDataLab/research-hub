@@ -7,8 +7,13 @@ import { useResearchHubSession } from "@/components/research-hub-shell";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { addProjectMember, listProjects, removeProjectMember, type ProjectMember, type ResearchProject } from "@/lib/projects";
 import { getToolSettings, type ToolSettings } from "@/lib/tool-settings";
+import { refreshSsoSessionIfNeeded } from "@/lib/sso";
 
 const EMPTY_TOOL_SETTINGS: ToolSettings = { paperLabUrl: "", writingLabUrl: "" };
+type PaperLabHandoff = { popup: Window; state: string; projectId: string; origin: string; timer: number };
+
+const HANDOFF_REQUEST = "paperlab.sso.handoff.request";
+const REFRESH_REQUEST = "paperlab.sso.refresh.request";
 
 function toolUrl(baseUrl: string | undefined, projectId: string): string | null {
   if (!baseUrl?.trim()) return null;
@@ -62,7 +67,8 @@ export default function ProjectWorkspacePage() {
   const [memberError, setMemberError] = useState("");
   const [memberNotice, setMemberNotice] = useState("");
   const [memberToRemove, setMemberToRemove] = useState<ProjectMember | null>(null);
-  const pendingHandoff = useRef<{ popup: Window; state: string; projectId: string; origin: string; timer: number } | null>(null);
+  const pendingHandoff = useRef<PaperLabHandoff | null>(null);
+  const activeHandoffs = useRef(new Map<string, PaperLabHandoff>());
   const [toolSettingsState, setToolSettingsState] = useState<{ accessToken: string; settings: ToolSettings; error: string } | null>(null);
 
   useEffect(() => {
@@ -138,22 +144,39 @@ export default function ProjectWorkspacePage() {
 
   useEffect(() => {
     function onHandoffRequest(event: MessageEvent<unknown>) {
-      const pending = pendingHandoff.current;
-      if (!pending || event.source !== pending.popup || event.origin !== pending.origin || !project || project.id !== pending.projectId) return;
-      if (!event.data || typeof event.data !== "object") return;
+      if (!project || !event.data || typeof event.data !== "object") return;
       const request = event.data as Record<string, unknown>;
-      if (request.type !== "paperlab.sso.handoff.request" || request.state !== pending.state || request.projectId !== pending.projectId) return;
-
-      pending.popup.postMessage({
-        type: "researchhub.sso.handoff.response",
-        state: pending.state,
-        projectId: pending.projectId,
-        accessToken: session.accessToken,
-        expiresAt: session.expiresAt,
-      }, pending.origin);
-      window.clearTimeout(pending.timer);
-      pendingHandoff.current = null;
-      setHandoffError("");
+      if (request.type === HANDOFF_REQUEST) {
+        const pending = pendingHandoff.current;
+        if (!pending || event.source !== pending.popup || event.origin !== pending.origin || project.id !== pending.projectId || request.state !== pending.state || request.projectId !== pending.projectId) return;
+        void (async () => {
+          const fresh = await refreshSsoSessionIfNeeded().catch(() => null);
+          const accessToken = fresh?.accessToken ?? session.accessToken;
+          const expiresAt = fresh?.expiresAt ?? session.expiresAt;
+          if (pendingHandoff.current?.state !== pending.state) return;
+          if (expiresAt <= Date.now()) {
+            pending.popup.postMessage({ type: "researchhub.sso.handoff.response", state: pending.state, projectId: pending.projectId, error: "session_expired" }, pending.origin);
+          } else {
+            pending.popup.postMessage({ type: "researchhub.sso.handoff.response", state: pending.state, projectId: pending.projectId, accessToken, expiresAt }, pending.origin);
+            activeHandoffs.current.set(pending.state, pending);
+            setHandoffError("");
+          }
+          window.clearTimeout(pending.timer);
+          if (pendingHandoff.current?.state === pending.state) pendingHandoff.current = null;
+        })();
+        return;
+      }
+      if (request.type !== REFRESH_REQUEST || typeof request.state !== "string" || typeof request.requestId !== "string") return;
+      const active = activeHandoffs.current.get(request.state);
+      if (!active || event.source !== active.popup || event.origin !== active.origin || project.id !== active.projectId || active.popup.closed) return;
+      void refreshSsoSessionIfNeeded().then((fresh) => {
+        if (!fresh || fresh.expiresAt <= Date.now()) throw new Error("expired");
+        if (activeHandoffs.current.get(active.state) !== active || active.popup.closed) return;
+        active.popup.postMessage({ type: "researchhub.sso.refresh.response", state: active.state, projectId: active.projectId, requestId: request.requestId, accessToken: fresh.accessToken, expiresAt: fresh.expiresAt }, active.origin);
+      }).catch(() => {
+        if (activeHandoffs.current.get(active.state) !== active || active.popup.closed) return;
+        active.popup.postMessage({ type: "researchhub.sso.refresh.response", state: active.state, projectId: active.projectId, requestId: request.requestId, error: "session_expired" }, active.origin);
+      });
     }
     window.addEventListener("message", onHandoffRequest);
     return () => window.removeEventListener("message", onHandoffRequest);
